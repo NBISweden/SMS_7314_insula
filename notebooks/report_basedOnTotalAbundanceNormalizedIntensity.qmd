@@ -1,0 +1,331 @@
+---
+title: Subcellular proteomic analysis of the insula in alcohol dependence
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+toc: true
+number-sections: true
+format: 
+  html:
+    #embed-resources: true #This works from command line not from Rstudio
+    code-fold: false
+    code-tools: true
+    code-link: true
+    theme: pandoc
+    df-print: paged
+    html-math-method: katex #use katex for math text
+  pdf:
+    code-line-numbers: true
+    geometry: 
+      - top=30mm
+      - left=30mm
+  docx: default
+language:
+  code-summary: Click to show code
+editor: visual
+---
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been processed by company. The company has combined proteinGroups data of 2 labeling groups (Batches G1, G2, a total of 24 samples) and we will use the same normalized abundance values (with missing values removed) that the company used for the downstream analysis, but normalize again and take batches into consideration during the differential analysis, which the company didn't seem have done
+
+# Workflow
+
+## Import and process the data
+
+```{r}
+suppressPackageStartupMessages({
+  library(readxl)
+  library(purrr)
+})
+```
+
+```{r}
+jName = "7314"
+inputP = "../data/Creative Proteomics_DATA/"
+dataP = paste0("../data/input_", jName)
+dir.create(dataP, showWarnings=F, recursive=T)
+designP = paste0("../data/design_", jName)
+dir.create(designP, showWarnings=F, recursive=T)
+#comparisons = c("A_Iliaca-Aorta","A_Iliaca-Femoralis") &&&
+outDir = "../results/totalAbundanceNormalized/"
+dir.create(outDir, recursive = T, showWarnings = F)
+```
+
+```{r}
+print("Get sample names")
+sample_names = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = F) %>%
+  sapply(., function(i) strsplit(i, " ")[[1]][1]) %>%
+  as.character()
+
+
+print("Import all three datasets together...")
+inputfiles = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = T)
+dataTable.list = suppressWarnings(map(inputfiles, function(x) {
+  dat = read_excel(x, sheet=5, col_names=TRUE, na="", skip=0)
+  ncol = ncol(dat)
+  dat = read_excel(x, sheet=5, col_names=TRUE, na="", skip=0,
+        col_types=c(rep("text", 4), rep("numeric", ncol(dat)-4-1), 
+                    rep("text", 1)))
+  dat = dat %>% 
+    .[, c('Protein IDs', "Gene names",
+          grep('intensity', 
+               colnames(dat), value=T))]
+  print("Only Pellet has two pool samples for each batch, will remove them...")
+  dat = dat %>% .[, colnames(dat)[!grepl('MIX', colnames(dat))]] 
+  colnames(dat) = gsub(" ", "_", colnames(dat))
+  dat
+  })) %>% setNames(sample_names)
+
+
+print("Make the design table...")
+design.table.list = suppressWarnings(map(1:length(dataTable.list), function(i) {
+  dataTable = dataTable.list[[i]]
+  sampleNames = colnames(dataTable)[3:ncol(dataTable)]
+  tab = sapply(sampleNames, function(j) {
+    strsplit(j, "_")[[1]][c(3, 4, 6, 7)]
+  }) %>% as.character()
+  design.table = matrix(tab, ncol=4, byrow=T) %>% as.data.frame() %>%
+    na.omit() %>% setNames(c("sample", "Batch", "Fraction", "Condition")) %>%
+    dplyr::mutate(sample=paste0(sample, "_", Batch))
+  design.table$Condition = tolower(design.table$Condition)
+  design.table.filename = paste0(designP, "/design_", sample_names[i], ".tsv")
+  write.table(design.table, design.table.filename, quote=F, row.names=F, sep="\t")
+  design.table
+})) %>% setNames(sample_names)
+
+
+dataTable.list = lapply(dataTable.list, function(dataTable) {
+  samples_newnames = 
+    sapply(colnames(dataTable)[3:ncol(dataTable)], function(s) {
+    paste0(strsplit(s, "_")[[1]][3], "_", strsplit(s, "_")[[1]][4])
+    }) %>% as.character()
+  colnames(dataTable) = c('Protein_IDs', "Gene_names", samples_newnames)
+  dataTable
+})
+
+```
+
+```{r}
+print("Sort out gene names...")
+print("Some proteins have two genes, we will only keep the 1st one if it is in the gene SYMBOL list...")
+print("Some genes are obsolete, we will update it...")
+
+suppressMessages(library(org.Hs.eg.db))
+symb <- keys(org.Hs.eg.db, "SYMBOL")
+
+dataTable.list_corrrected = lapply(dataTable.list, function(dat) {
+  INDEX = !(dat$Gene_names %in% symb)
+  temp = dat$Gene_names[!(dat$Gene_names %in% symb)]
+  temp2 = sapply(temp, function(i) {
+    gene.list = strsplit(i, ";")[[1]]
+    gene.list = limma::alias2Symbol(c(gene.list))
+    gene.list[1]
+  })
+  dat$Genes = dat$Gene_names
+  dat = dat %>% 
+    dplyr::select(Protein_IDs, Genes, Gene_names, everything())
+  dat$Genes[INDEX] = temp2
+  dat
+})
+
+
+
+colnames(dataTable.list_corrrected[[1]])
+print("Special fix for each dataset 1 ...")
+i = 1
+dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
+dataTable.list_corrrected[[i]][dataTable.list_corrrected[[i]]$Gene_names %in% 
+  c("KIAA1045", "calm1a", "45184"), "Genes"] = 
+  c("PHF24", "CALM3", "SELENOF")
+dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
+
+print("Special fix for each dataset 2 ...")
+i = 2
+dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
+dataTable.list_corrrected[[i]][dataTable.list_corrrected[[i]]$Gene_names %in% 
+  c("calm1a", "KIAA1045"), "Genes"] = c("CALM3", "PHF24")
+dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
+
+print("Special fix for each dataset 3 ...")
+i=3
+dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
+dataTable.list_corrrected[[i]][dataTable.list_corrrected[[i]]$Gene_names %in% 
+  c("calm1a", "KIAA1045", "45184", "44990", "MT-CYB", "MT-CO3", "MT-ATP6", "MT-ND3", "MT-ND6", "MT-ATP8"), "Genes"] = 
+  c("CALM3", "PHF24", "SELENOF", "MARCHF5", "MT-CYB", "MT-CO3", "MT-ATP6", "MT-ND3", "MT-ND6", "MT-ATP8")
+dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
+
+
+print("save intensity data to files...")
+lapply(1:length(dataTable.list_corrrected), function(i) {
+  data.path = paste0(dataP, "/", sample_names[i], ".txt")
+  write.table(dataTable.list_corrrected[[i]], 
+              data.path, quote=F, row.names=F, sep="\t")
+})
+  
+
+```
+
+```{r}
+print("Check Protein IDs...")
+# i = 1
+# suppressMessages(library(UniProt.ws))
+# library(rbioapi)
+# source("../src/getNewUniprotID.r")
+# uniprotID = getNewUniprotID(dataTable.list_corrrected[[i]]$Protein_IDs)
+# length(uniprotID)
+# dim(dataTable.list_corrrected[[i]])
+```
+
+## QC
+
+### run normalyzer from the NormalyzerDE package
+
+This step will automatically perform and compare different normalization methods for you and with a summary report provided.
+
+```{r}
+library(NormalyzerDE)
+lapply(1:length(dataTable.list_corrrected), function(i) {
+  design.path = paste0(designP, "/design_", sample_names[i], ".tsv")
+  data.path = paste0(dataP, "/", sample_names[i], ".txt")
+  out.path = paste0(outDir, "/", sample_names[i], "/normalization/condition/")
+  dir.create(out.path, showWarnings = F, recursive = T)
+  suppressMessages(normalyzer(jobName="", 
+                              designPath=design.path,  
+                              dataPath=data.path, 
+                              outputDir=out.path, 
+                              normalizeRetentionTime=FALSE, 
+                              sampleColName = "sample",
+                              groupColName="Condition"),
+                              )
+  out.path = paste0(outDir, "/", sample_names[i], "/normalization/batch/")
+  dir.create(out.path, showWarnings = F, recursive = T)
+  suppressMessages(normalyzer(jobName="", 
+                              designPath=design.path,  
+                              dataPath=data.path, 
+                              outputDir=out.path, 
+                              normalizeRetentionTime=FALSE, 
+                              sampleColName = "sample",
+                              groupColName="Batch"),
+                              )
+})
+
+```
+
+### PCA plot
+
+```{r}
+
+```
+
+## Statistical test
+
+#### LIMMA comparisons using the best normalized data
+
+**Please be noticed that, in the test, we only consider proteins that have at least 5 non-missing values in each of the three groups**
+
+```{r}
+sigThres = 0.1
+jDENormName = paste0("Comparisons_loess", sigThres)
+lapply(1:length(dataTable.list_corrrected), function(i) {
+  design.path = paste0(designP, "/design_", sample_names[i], ".tsv")
+  normalized.path = 
+    paste0(outDir, "/", sample_names[i], "/normalization/condition/CycLoess-normalized.txt")
+  out.path = paste0(outDir, "/", sample_names[i], "/differentialAnalysis/")
+  dir.create(out.path, showWarnings = F, recursive = T)
+  comparisons = c("case-control")
+  normalyzerDE(jDENormName, designPath = design.path, dataPath = normalized.path, 
+             leastRepCount = 5, condCol = "Condition", comparisons = comparisons,  
+             # leastRepCount: least replicates in each group to be returned for contrast calculations.
+             batchCol="Batch", sigThres = sigThres, outputDir = out.path)
+})
+```
+
+```{r}
+sigThres = 0.1
+jDENormName = paste0("Comparisons_Quantile", sigThres)
+lapply(1:length(dataTable.list_corrrected), function(i) {
+  design.path = paste0(designP, "/design_", sample_names[i], ".tsv")
+  normalized.path = 
+    paste0(outDir, "/", sample_names[i], "/normalization/condition/Quantile-normalized.txt")
+  out.path = paste0(outDir, "/", sample_names[i], "/differentialAnalysis/")
+  dir.create(out.path, showWarnings = F, recursive = T)
+  comparisons = c("case-control")
+  normalyzerDE(jDENormName, designPath = design.path, dataPath = normalized.path, 
+             leastRepCount = 5, condCol = "Condition", comparisons = comparisons,  
+             # leastRepCount: least replicates in each group to be returned for contrast calculations.
+             batchCol="Batch", sigThres = sigThres, outputDir = out.path)
+})
+```
+
+```{r}
+sigThres = 0.1
+jDENormName = paste0("Comparisons_median", sigThres)
+lapply(1:length(dataTable.list_corrrected), function(i) {
+  design.path = paste0(designP, "/design_", sample_names[i], ".tsv")
+  normalized.path = 
+    paste0(outDir, "/", sample_names[i], "/normalization/condition/median-normalized.txt")
+  out.path = paste0(outDir, "/", sample_names[i], "/differentialAnalysis/")
+  dir.create(out.path, showWarnings = F, recursive = T)
+  comparisons = c("case-control")
+  normalyzerDE(jDENormName, designPath = design.path, dataPath = normalized.path, 
+             leastRepCount = 5, condCol = "Condition", comparisons = comparisons,  
+             # leastRepCount: least replicates in each group to be returned for contrast calculations.
+             batchCol="Batch", sigThres = sigThres, outputDir = out.path)
+})
+```
+
+## Deliverables
+
+### Directory
+
+## Practical info
+
+### Software
+
+## Data responsibility
+
+The responsibility for data archiving lies with the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+## Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).
