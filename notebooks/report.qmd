@@ -58,7 +58,6 @@ The data has already been filtered by the company (e.g. removed proteins with CO
 
 Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
 
-
 # Import and process the data
 
 ```{r}
@@ -67,7 +66,16 @@ suppressPackageStartupMessages({
   library(purrr)
   library(EDASeq)
   library(limma)
+  library(emmeans)   
   library(edgeR)
+  library(future.apply)
+  library(dplyr)
+  library(tidyr)
+  library(plyr)
+  library(xlsx)
+  library(ggplot2)
+  library(ComplexHeatmap)
+  library(GGally)
 })
 ```
 
@@ -84,15 +92,20 @@ dir.create(outDir, recursive = T, showWarnings = F)
 
 ```{r}
 print("Make the design table without ref...")
-print("We will get meta data info from sheet 5 of each excel file...")
+print("We will get meta data info from sheet 5 of each excel file")
+print("This is the company normalized data, whose count will NOT be analyzed here...")
 
 print("Get sample names")
+file = '~$Data result_CYTOSOLIC extracts (CPJS05122201).xlsx'
+if (file.exists(file)) {file.remove(file)}
 sample_names = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = F) %>%
   sapply(., function(i) strsplit(i, " ")[[1]][1]) %>%
   as.character()
 
 
 print("Import all three datasets together...")
+file = '~$Data result_CYTOSOLIC extracts (CPJS05122201).xlsx'
+if (file.exists(file)) {file.remove(file)}
 inputfiles = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = T)
 dataTable.list0 = suppressWarnings(map(inputfiles, function(x) {
   dat = read_excel(x, sheet=5, col_names=TRUE, na="", skip=0)
@@ -115,10 +128,10 @@ design.table.list = suppressWarnings(map(seq_along(dataTable.list0), function(i)
   dataTable = dataTable.list0[[i]]
   sampleNames = colnames(dataTable)[3:ncol(dataTable)]
   tab = sapply(sampleNames, function(j) {
-    strsplit(j, "_")[[1]][c(3, 4, 6, 7)]
+    strsplit(j, "_")[[1]][c(3, 4, 5, 6, 7)]
   }) %>% as.character()
-  design.table = matrix(tab, ncol=4, byrow=T) %>% as.data.frame() %>%
-    na.omit() %>% setNames(c("sample", "Batch", "Fraction", "Condition")) %>%
+  design.table = matrix(tab, ncol=5, byrow=T) %>% as.data.frame() %>%
+    na.omit() %>% setNames(c("sample", "Batch", "sampleID", "Fraction", "Condition")) %>%
     dplyr::mutate(sample=paste0(sample, "_", Batch))
   design.table$Condition = tolower(design.table$Condition)
   design.table.filename = paste0(designP, "/design_", sample_names[i], ".tsv")
@@ -126,6 +139,38 @@ design.table.list = suppressWarnings(map(seq_along(dataTable.list0), function(i)
   design.table
 })) %>% setNames(sample_names)
 
+moreMeta <- tibble::tribble(
+  ~sampleID,     ~Sex,    ~Age,  ~RIN,   ~PMI,  ~Condition,
+ #---------|-----------|------|-------|-------|-----------|
+  "13005",      "Male",     45,    7.4,   8.48,     "case",
+  "13172",      "Male",     49,    9.4,   7.32,     "case",
+  "13189",    "Female",     59,    7.8,    7.5,     "case",
+  "13193",      "Male",     38,    9.5,   7.78,     "case",
+  "13234",    "Female",     51,    9.6,  10.12,     "case",
+  "13246",      "Male",     59,    8.8,    9.5,     "case",
+  "13271",      "Male",     65,    7.1,  11.97,     "case",
+  "13296",      "Male",     55,    8.9,   7.68,     "case",
+  "13327",      "Male",     58,    8.3,    6.7,     "case",
+  "13346",      "Male",     53,    7.0,    9.3,     "case",
+  "13211",      "Male",     52,    8.8,  12.33,     "case",
+  "13504",      "Male",     50,    7.1,  11.25,     "case",
+  "13350",      "Male",     45,    8.9,   7.08,  "control",
+  "13259",      "Male",     48,    8.5,   8.25,  "control",
+  "13475",    "Female",     58,    7.8,   8.75,  "control", 
+  "13414",      "Male",     41,    8.1,   9.85,  "control",
+  "13149",    "Female",     46,    7.5,    7.6,  "control",
+  "13645",      "Male",     58,    9.3,   14.4,  "control",
+  "13428",      "Male",     64,    9.0,   9.22,  "control",
+  "13048",      "Male",     54,    9.3,    8.4,  "control",
+  "13170",      "Male",     59,    8.9,  11.65,  "control",
+  "13032",      "Male",     52,    8.1,   8.97,  "control",
+  "13068",      "Male",     48,    9.5,  12.78,  "control",
+  "13298",      "Male",     50,    8.5,  10.67,  "control",
+)
+
+design.table.list = lapply(design.table.list, function(t) {
+  dplyr::full_join(t, moreMeta)
+})
 ```
 
 ```{r}
@@ -134,8 +179,8 @@ sample_names = list.files(inputP, pattern=").xlsx$", recursive = T, full.names =
   sapply(., function(i) strsplit(i, " ")[[1]][1]) %>%
   as.character()
 
-
-print("Import all three datasets together...")
+print("Import all three datasets together")
+print("Here we start from the company filtered raw data")
 inputfiles = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = T)
 dataTable.list1 = suppressWarnings(map(inputfiles, function(x) {
   get_dat = function(j) {
@@ -172,8 +217,6 @@ dataTable.list1 = suppressWarnings(map(inputfiles, function(x) {
   dat
 })) %>% setNames(sample_names)
 
-
-
 lapply(1:length(dataTable.list1), function(i) {
   d = dataTable.list1[[i]]
   l = na.omit(d)
@@ -182,12 +225,11 @@ lapply(1:length(dataTable.list1), function(i) {
   paste0("After removing NA-containing proteins, the number of proteins for the dataset ", sample_names[i], " is ", nrow(l))
 })
 
+print("There are lots of NA-containing proteins, ")
+print("if we remove them, we will remove lots of info, so I will keep them")
 
-print("There are lots of NA-containing proteins, if we remove them, we will remove lots of info, so I will keep them")
-
-print("I also notice that compared to the DEP table (sheet5) the company used, there are extra samples, which represent pool samples, we will use them to calculate ratio ")
-
-
+print("I also notice that compared to the DEP table (sheet5) the company used,")
+print("there are extra samples, which represent pool samples, we will use them to calculate ratio")
 dataTable.list = lapply(dataTable.list1, function(dataTable) {
   samples_newnames = colnames(dataTable)[3:ncol(dataTable)]
     # sapply(colnames(dataTable)[3:ncol(dataTable)], function(s) {
@@ -198,6 +240,45 @@ dataTable.list = lapply(dataTable.list1, function(dataTable) {
   dataTable
 })
 
+OUTDIR_QC = paste0(outDir, "/QC/")
+dir.create(OUTDIR_QC, recursive = T, showWarnings = F)
+
+pdf(paste0(OUTDIR_QC, "/Barplot_raw_total_intensity.pdf"), h=4, w=10)
+sum.list = lapply(names(dataTable.list), function(i) {
+  d = dataTable.list[[i]]
+  sample.names = grep("_G", colnames(d), value=T)
+  total = d[, sample.names] %>% colSums(na.rm=T)
+  missingValues = is.na(d[, sample.names]) %>% colSums()
+  mat = data.frame(Total_intensity=as.numeric(total), 
+                   sample=names(total),
+                   MissingValues=as.numeric(missingValues))
+  mat$sample = factor(mat$sample, 
+    levels=c(grep("_G1", mat$sample, value=T),
+             grep("_G2", mat$sample, value=T)))
+  p1=ggplot(mat, aes(x=sample, y=Total_intensity)) +
+    geom_bar(stat="identity") +
+    theme(axis.text.x = element_text(angle = 45, 
+                                vjust = 1, hjust = 1)) +
+    ggtitle(paste0(i, "_raw data"))
+  print(p1)
+  p2=ggplot(mat, aes(x=sample, y=MissingValues)) +
+    geom_bar(stat="identity") +
+    theme(axis.text.x = element_text(angle = 45, 
+                                vjust = 1, hjust = 1)) +
+    ggtitle(paste0(i, "_missing values"))
+  print(p2)
+  return(mat)
+}) %>% setNames(names(dataTable.list))
+dev.off()
+
+print("Add total intensity and missing value information into the design table")
+design.table.list = 
+  lapply(names(design.table.list), function(i) {
+  design.table.list[[i]] %>% 
+    left_join(sum.list[[i]])
+}) %>% setNames(names(design.table.list))
+
+#save design table without ref!!!!
 ```
 
 ```{r}
@@ -206,7 +287,7 @@ print("Make the design table with the ref info...")
 names(design.table.list)
 names(dataTable.list)
 
-design.table.list2 = lapply(1:length(dataTable.list), function(i) {
+design.table.list2 = lapply(seq_along(dataTable.list), function(i) {
   t = dataTable.list[[i]]
   d = design.table.list[[i]]
   samples = setdiff(colnames(t), c("Protein_IDs", "Gene_names"))
@@ -225,9 +306,6 @@ design.table.list2 = lapply(1:length(dataTable.list), function(i) {
 # Normalization
 
 ```{r}
-OUTDIR_QC = paste0(outDir, "/QC/")
-dir.create(OUTDIR_QC, recursive = T, showWarnings = F)
-
 pdf(paste0(OUTDIR_QC, "/Boxplot_raw.pdf"), h=4, w=10)
 lapply(names(dataTable.list), function(i){
   data_matrix = dataTable.list[[i]][3:ncol(dataTable.list[[i]])] %>%
@@ -353,12 +431,10 @@ dataTable.list_SL_IRS_clean = lapply(names(dataTable.list_SL_IRS), function(i){
 
 ```
 
-
-
 ```{r}
 print("TMM normalization")
 # In order to calculate TMM normalization factor, we need to replace NA with 0 first:
-dataTable.list_SL_IRS_clean_TMM =
+dataTable.list_SL_IRS_TMM =
   lapply(names(dataTable.list_SL_IRS_clean), function(i){
   data_matrix = dataTable.list_SL_IRS_clean[[i]]
   sample_names = grep("_G", colnames(data_matrix), value=T)
@@ -371,12 +447,10 @@ dataTable.list_SL_IRS_clean_TMM =
   data_matrix
 }) %>% setNames(names(dataTable.list_SL_IRS_clean))
 
-
-
 pdf(paste0(OUTDIR_QC, "/Boxplot_SL_IRS_clean_TMM.pdf"), h=4, w=10)
-lapply(names(dataTable.list_SL_IRS_clean_TMM), function(i){
+lapply(names(dataTable.list_SL_IRS_TMM), function(i){
   data_matrix =
-    dataTable.list_SL_IRS_clean_TMM[[i]]
+    dataTable.list_SL_IRS_TMM[[i]]
   sample_names = grep("_G", colnames(data_matrix), value=T)
   data_matrix = data_matrix[, sample_names] %>% as.matrix()
   boxplot(data_matrix, main=paste0(i, "_TMM_boxplot"),
@@ -387,20 +461,78 @@ lapply(names(dataTable.list_SL_IRS_clean_TMM), function(i){
           ylab="log2 scale")
 })
 dev.off()
+
+print("Check how many proteins are completely missing:")
+lapply(dataTable.list, function(d) {
+  sample.names = grep("_G", colnames(d))
+  nas = d[, sample.names] %>% is.na() %>%
+    rowSums()
+  sum(nas==24)
+})
+
+lapply(dataTable.list_SL, function(d) {
+  sample.names = grep("_G", colnames(d))
+  nas = d[, sample.names] %>% is.na() %>%
+    rowSums()
+  sum(nas==24)
+})
+
+lapply(dataTable.list_SL_IRS, function(d) {
+  sample.names = grep("_G", colnames(d))
+  nas = d[, sample.names] %>% is.na() %>%
+    rowSums()
+  sum(nas==24)
+})
+
+lapply(dataTable.list_SL_IRS_TMM, function(d) {
+  sample.names = grep("_G", colnames(d))
+  nas = d[, sample.names] %>% is.na() %>%
+    rowSums()
+  sum(nas==24)
+})
+
+dataTable.list_SL_IRS_TMM=lapply(dataTable.list_SL_IRS_TMM,function(d){
+  sample.names = grep("_G", colnames(d))
+  nas = d[, sample.names] %>% is.na() %>%
+    rowSums()
+  d[!(nas==24), ]
+})
+
+lapply(dataTable.list_SL_IRS_TMM, function(d) {
+  sample.names = grep("_G", colnames(d))
+  nas = d[, sample.names] %>% is.na() %>%
+    rowSums()
+  sum(nas==24)
+})
+
+lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+  print(i)
+  d = dataTable.list_SL_IRS_TMM[[i]]
+  print(paste0("Check the dim of normalized count table for ", i))
+  print(dim(d))
+  print(paste0("Check the dim of the normalized count table after na.omit for ", i))
+  print(dim(na.omit(d)))
+})
+
 ```
 
-
-```{r}
+```{r, cache=TRUE}
 print("Sort out gene names...")
-print("Some proteins have two genes, we will only keep the 1st one if it is in the gene SYMBOL list...")
+#print("Some proteins have two genes, we will only keep the 1st one if it is in the gene SYMBOL list DURING THE FUNCTIONAL PATHWAYS ANALYSIS STEP!")
 print("Some genes are obsolete, we will update it...")
 
 suppressMessages(library(org.Hs.eg.db))
 symb <- keys(org.Hs.eg.db, "SYMBOL")
 
-dataTable.list_corrrected = lapply(dataTable.list, function(dat) {
+dataTable.list_SL_IRS_TMM = lapply(dataTable.list_SL_IRS_TMM, function(dat) {
+  print("Remove duplicated (gene names for the same protein ID")
+  dat$Gene_names = dat$Gene_names %>% sapply(., function(x) {
+    strsplit(x, ";") %>% unlist() %>% 
+      unique() %>% paste(., collapse =";")
+  })
+  print("Change gene names to updated human gene symbols")
   INDEX = !(dat$Gene_names %in% symb)
-  temp = dat$Gene_names[!(dat$Gene_names %in% symb)]
+  temp = dat$Gene_names[INDEX]
   temp2 = sapply(temp, function(i) {
     gene.list = strsplit(i, ";")[[1]]
     gene.list = limma::alias2Symbol(c(gene.list))
@@ -411,43 +543,30 @@ dataTable.list_corrrected = lapply(dataTable.list, function(dat) {
     dplyr::select(Protein_IDs, Genes, Gene_names, everything())
   dat$Genes[INDEX] = temp2
   dat
-})
-
-
-
-colnames(dataTable.list_corrrected[[1]])
-print("Special fix for each dataset 1 ...")
-i = 1
-dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
-dataTable.list_corrrected[[i]][dataTable.list_corrrected[[i]]$Gene_names %in% 
-  c("KIAA1045", "calm1a", "45184"), "Genes"] = 
-  c("PHF24", "CALM3", "SELENOF")
-dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
-
-print("Special fix for each dataset 2 ...")
-i = 2
-dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
-dataTable.list_corrrected[[i]][dataTable.list_corrrected[[i]]$Gene_names %in% 
-  c("calm1a", "KIAA1045"), "Genes"] = c("CALM3", "PHF24")
-dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
-
-print("Special fix for each dataset 3 ...")
-i=3
-dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
-dataTable.list_corrrected[[i]][dataTable.list_corrrected[[i]]$Gene_names %in% 
-  c("calm1a", "KIAA1045", "45184", "44990", "MT-CYB", "MT-CO3", "MT-ATP6", "MT-ND3", "MT-ND6", "MT-ATP8"), "Genes"] = 
-  c("CALM3", "PHF24", "SELENOF", "MARCHF5", "MT-CYB", "MT-CO3", "MT-ATP6", "MT-ND3", "MT-ND6", "MT-ATP8")
-dataTable.list_corrrected[[i]][is.na(dataTable.list_corrrected[[i]]$Genes), 1:5]
-
-
-print("save intensity data to files...")
-lapply(1:length(dataTable.list_corrrected), function(i) {
-  data.path = paste0(dataP, "/", sample_names[i], ".txt")
-  write.table(dataTable.list_corrrected[[i]], 
-              data.path, quote=F, row.names=F, sep="\t")
+  print("Fix empty gene names")
+  INDEX.NA = is.na(dat$Genes)
+  #k <- keys(UniProt.ws, "UNIPROTKB")
+  query = dat[INDEX.NA, "Protein_IDs"] #%>% setdiff(., c("Q00169", "Q9BRA0"))
+  library(UniProt.ws)
+  Gene.Names = 
+    mapUniProt("UniProtKB_AC-ID", "UniProtKB", query = query) %>%
+    .[, "Gene.Names"]
+  new.Gene.Names = if (sum(!is.na(Gene.Names)) > 0) {
+      hgncs = sapply(Gene.Names, function(genes) {
+        if (genes != "") {
+          gene.list = strsplit(genes, " ")[[1]] 
+          hgnc = gene.list[gene.list %in% symb]
+          hgnc[1]
+        }
+      })
+    } %>% unlist() %>% as.character()
+  dat[INDEX.NA, "Genes"] = new.Gene.Names
+  dat
 })
   
 
+# library(UniProt.ws)
+# up <- UniProt.ws(taxId=9606)
 ```
 
 ```{r}
@@ -461,113 +580,612 @@ print("Check Protein IDs...")
 # dim(dataTable.list_corrrected[[i]])
 ```
 
-## QC
+# QC
 
-### run normalyzer from the NormalyzerDE package
-
-This step will automatically perform and compare different normalization methods for you and with a summary report provided.
+## PCA
 
 ```{r}
-library(NormalyzerDE)
-lapply(1:length(dataTable.list_corrrected), function(i) {
-  design.path = paste0(designP, "/design_", sample_names[i], ".tsv")
-  data.path = paste0(dataP, "/", sample_names[i], ".txt")
-  out.path = paste0(outDir, "/", sample_names[i], "/normalization/condition/")
-  dir.create(out.path, showWarnings = F, recursive = T)
-  suppressMessages(normalyzer(jobName="", 
-                              designPath=design.path,  
-                              dataPath=data.path, 
-                              outputDir=out.path, 
-                              normalizeRetentionTime=FALSE, 
-                              sampleColName = "sample",
-                              groupColName="Condition"),
-                              )
-  out.path = paste0(outDir, "/", sample_names[i], "/normalization/batch/")
-  dir.create(out.path, showWarnings = F, recursive = T)
-  suppressMessages(normalyzer(jobName="", 
-                              designPath=design.path,  
-                              dataPath=data.path, 
-                              outputDir=out.path, 
-                              normalizeRetentionTime=FALSE, 
-                              sampleColName = "sample",
-                              groupColName="Batch"),
-                              )
+lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+  data_matrix = dataTable.list_SL_IRS_TMM[[i]]
+  sample_names = grep("_G", colnames(data_matrix), value=T)
+  rownames(data_matrix) = data_matrix$Protein_IDs
+  c_pca = prcomp(t(na.omit(data_matrix[,sample_names])), 
+                 scale=TRUE, center = TRUE)
+  frac_var = function(x) x^2/sum(x^2)
+  design = design.table.list[[i]]
+  design$Age_group = ifelse(design$Age<=45, "0-45", 
+              ifelse(design$Age<=55, "46-55", "56-65"))
+  var_explained = c_pca$sdev %>% 
+    tibble::as_tibble() %>% 
+    frac_var() %>% 
+    round(digits = 2)
+  c_pca_all <- c_pca$x %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column(var = "sample") %>%
+    dplyr::full_join(design, by = "sample") 
+  library(GGally)
+  P1=suppressMessages(ggpairs(c_pca_all,
+               columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
+                         "Condition", "Sex", "Age", "RIN", "PMI",
+                         "Total_intensity", "MissingValues"),
+               mapping=aes(color=Batch), upper=list(continuous='blank'),
+               main="Colored by Batch"))
+  P2=suppressMessages(ggpairs(c_pca_all,
+               columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
+                         "Condition", "Sex", "Age", "RIN", "PMI",
+                         "Total_intensity", "MissingValues"),
+               mapping=aes(color=Condition), upper=list(continuous='blank'),
+               main="Colored by Condition"))
+  pdf(paste0(OUTDIR_QC, "/", i, "_PCA_plot.pdf"), h=7.5, w=10)
+  print(P1)
+  print(P2)
+  
+  p3 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Batch, col=Condition)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+  p4 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Batch, col=Condition)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+  p5 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Batch, col=Condition)) +
+    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
+  p52 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Batch, col=Condition)) +
+    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
+  print(cowplot::plot_grid(p3, p4, p5, p52, ncol=2, labels=i))
+  
+  p6 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=RIN)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+  p7 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=RIN)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+  p8 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=RIN)) +
+    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
+  p82 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=RIN)) +
+    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
+  print(cowplot::plot_grid(p6, p7, p8, p82, ncol=2, labels=i))
+  
+  p9 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=PMI)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+  p10 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=PMI)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+  p11 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=PMI)) +
+    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
+  p112 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=PMI)) +
+    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
+  print(cowplot::plot_grid(p9, p10, p11, p112, ncol=2, labels=i))
+  
+  p12 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=Age)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+  p13 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=Age)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+  p14 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=Age)) +
+    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
+  p142 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=Age)) +
+    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
+  print(cowplot::plot_grid(p12, p13, p14, p142, ncol=2, labels=i))
+  
+  p15 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=Total_intensity)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+  p16 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=Total_intensity)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+  p17 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=Total_intensity)) +
+    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
+  p172 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=Total_intensity)) +
+    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
+  print(cowplot::plot_grid(p15, p16, p17, p172, ncol=2, labels=i))
+  
+  p18 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=MissingValues)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+  p19 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=MissingValues)) +
+    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+  p20 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=MissingValues)) +
+    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
+  p202 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
+    geom_point(size = 3, aes(shape = Sex, col=MissingValues)) +
+    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
+  print(cowplot::plot_grid(p18, p19, p20, p202, ncol=2, labels=i))
+  
+  dev.off()
 })
 
 ```
 
-### PCA plot
+## Outlier
+
+From the PCA plot, we can see that cytosolic comparment may have an outlier
 
 ```{r}
+# Outlier detection by the Mahalanobis distances of PC1 and PC2. Also plot PC1 and PC2 with its confidence ellipse.
+data_matrix = dataTable.list_SL_IRS_TMM[["CYTOSOLIC"]]
+sample_names = grep("_G", colnames(data_matrix), value=T)
+rownames(data_matrix) = data_matrix$Protein_IDs
+p = mt::pca.outlier(t(na.omit(data_matrix[,sample_names])))
+pdf(paste0(OUTDIR_QC, "/", i, "_PCA_plot_outlier_CYTOSOL.pdf"), h=4, w=4)
+p
+dev.off()
+
+print("After checking the QC plot, the RIN values for this sample have the lowest RIN values")
+print(", indicating a compromised sample quality")
+print("so we will remove the sample...")
+dataTable.list_SL_IRS_TMM[["CYTOSOLIC"]] = 
+  dataTable.list_SL_IRS_TMM[["CYTOSOLIC"]][,setdiff(colnames(dataTable.list_SL_IRS_TMM[["CYTOSOLIC"]]), 
+                                                    "133C_G2")]
+
+print("Remove this sample from the design table as well...")
+design.table.list$CYTOSOLIC =
+  design.table.list$CYTOSOLIC %>% filter(!(sample %in% "133C_G2"))
 
 ```
 
-## Statistical test
+# Statistical test
 
-#### LIMMA comparisons using the best normalized data
+LIMMA comparisons using the normalized data
 
-**Please be noticed that, in the test, we only consider proteins that have at least 5 non-missing values in each of the three groups**
+```{r,message=FALSE,warning=FALSE,error=FALSE, cache=TRUE}
+# do parallel model fitting
+rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+  data_matrix = dataTable.list_SL_IRS_TMM[[i]]
+  design_matrix = design.table.list[[i]]
+  plan(multisession)
+  models = future.apply::future_lapply(1:nrow(data_matrix),function(j){
+    abundance = data_matrix[j, design_matrix$sample]
+    tmp_data = data.frame(abundance=as.numeric(abundance),
+                           Condition=design_matrix$Condition, 
+                           Batch=design_matrix$Batch,
+                           RIN=as.numeric(design_matrix$RIN),
+                           PMI=as.numeric(design_matrix$PMI),
+                           Age=as.numeric(design_matrix$Age))
+    tmp_data$Condition = factor(tmp_data$Condition,levels=c("control", "case"))
+    if (i %in% c("CYTOSOLIC", "PELLET")) {
+      #print("We will also control for RIN for CYTOSOLIC and PELLET")
+      #print("Remove set for set specific proteins: ")
+      if(any(tapply(is.na(abundance), tmp_data$Batch, all))){
+        design = model.matrix(~0+Condition+RIN, data=tmp_data,verbose=FALSE)
+      }else{
+        design = model.matrix(~0+Condition+Batch+RIN,data=tmp_data,verbose=FALSE)
+      }      
+    } else {
+      if(any(tapply(is.na(abundance), tmp_data$Batch, all))){
+        design = model.matrix(~0+Condition+Age, data=tmp_data,verbose=FALSE)
+      }else{
+        design = model.matrix(~0+Condition+Batch+Age,data=tmp_data,verbose=FALSE)
+      }        
+    }
+    contrast.matrix =
+      makeContrasts(contrasts = "Conditioncase-Conditioncontrol", 
+                                                  levels = design)
+    fit = lmFit(abundance, design=design)
+    fit2 = contrasts.fit(fit, contrast.matrix)
+    fit2 = eBayes(fit2, robust=T)
+    limma_table = topTable(fit2,
+                            coef = 1,
+                            number = Inf,
+                            sort.by = "none")
+    limma_table
+  })
+  
+  rslt = Reduce(rbind, models) %>% cbind(data_matrix) %>% 
+    dplyr::select(Protein_IDs, Genes, everything())
+  rslt = arrange(rslt, P.Value)
+  # reset index
+  rownames(rslt) = NULL
+  rslt$adj.P.Val = p.adjust(rslt$P.Value, method = "fdr")
+  rslt
+}) %>% setNames(names(dataTable.list_SL_IRS_TMM))
 
-```{r}
-sigThres = 0.1
-jDENormName = paste0("Comparisons_loess", sigThres)
-lapply(1:length(dataTable.list_corrrected), function(i) {
-  design.path = paste0(designP, "/design_", sample_names[i], ".tsv")
-  normalized.path = 
-    paste0(outDir, "/", sample_names[i], "/normalization/condition/CycLoess-normalized.txt")
-  out.path = paste0(outDir, "/", sample_names[i], "/differentialAnalysis/")
-  dir.create(out.path, showWarnings = F, recursive = T)
-  comparisons = c("case-control")
-  normalyzerDE(jDENormName, designPath = design.path, dataPath = normalized.path, 
-             leastRepCount = 5, condCol = "Condition", comparisons = comparisons,  
-             # leastRepCount: least replicates in each group to be returned for contrast calculations.
-             batchCol="Batch", sigThres = sigThres, outputDir = out.path)
+hist(rslt.list[[1]][, "P.Value"], breaks = 100, xlab = "P.Value")
+hist(rslt.list[[2]][, "P.Value"], breaks = 100, xlab = "P.Value")
+hist(rslt.list[[3]][, "P.Value"], breaks = 100, xlab = "P.Value")
+
+hist(rslt.list[[1]][, "adj.P.Val"], breaks = 100, xlab = "adj.P.Val")
+hist(rslt.list[[2]][, "adj.P.Val"], breaks = 100, xlab = "adj.P.Val")
+hist(rslt.list[[3]][, "adj.P.Val"], breaks = 100, xlab = "adj.P.Val")
+
+rslt.list[[1]] %>% filter(adj.P.Val <0.2)
+
+sum(rslt.list[[1]]$adj.P.Val <0.2)
+sum(rslt.list[[2]]$adj.P.Val <0.2)
+sum(rslt.list[[3]]$adj.P.Val <0.2)
+
+sum(rslt.list[[1]]$adj.P.Val <0.1)
+sum(rslt.list[[2]]$adj.P.Val <0.1)
+sum(rslt.list[[3]]$adj.P.Val <0.1)
+
+#save the full differential table
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+dir.create(OUTDIR_DA, recursive = T, showWarnings = F)
+lapply(names(rslt.list), function(i) {
+  xlsx.file = 
+    paste0(OUTDIR_DA, "/Differential_Table", i, ".xlsx")
+  write.xlsx(rslt.list[[i]] %>% as.data.frame(), 
+    xlsx.file, 
+    sheetName = i, col.names = TRUE, 
+    row.names = F, append = F)  
 })
+
 ```
+
+## Barplot of significant proteins abundance
 
 ```{r}
-sigThres = 0.1
-jDENormName = paste0("Comparisons_Quantile", sigThres)
-lapply(1:length(dataTable.list_corrrected), function(i) {
-  design.path = paste0(designP, "/design_", sample_names[i], ".tsv")
-  normalized.path = 
-    paste0(outDir, "/", sample_names[i], "/normalization/condition/Quantile-normalized.txt")
-  out.path = paste0(outDir, "/", sample_names[i], "/differentialAnalysis/")
-  dir.create(out.path, showWarnings = F, recursive = T)
-  comparisons = c("case-control")
-  normalyzerDE(jDENormName, designPath = design.path, dataPath = normalized.path, 
-             leastRepCount = 5, condCol = "Condition", comparisons = comparisons,  
-             # leastRepCount: least replicates in each group to be returned for contrast calculations.
-             batchCol="Batch", sigThres = sigThres, outputDir = out.path)
+plotProteins = function(mat, design_matrix) {
+  nCounts = mat %>% as.data.frame() %>%
+    gather(-c(Protein_IDs,Genes, Gene_names, logFC,AveExpr,t,P.Value,adj.P.Val,B), 
+           key="sample", value="NormalizedAbundance") %>% 
+    filter(adj.P.Val<0.2) %>% full_join(design_matrix) %>% 
+    arrange(adj.P.Val, logFC)
+  #library(plyr)
+  df = ddply(nCounts, .(Batch, Condition, Protein_IDs), summarize,
+             mean = round(mean(NormalizedAbundance), 2),
+             sd = round(sd(NormalizedAbundance), 2)) %>%
+    rename(.,c("NormalizedAbundance" = "mean"))
+  df$NormalizedAbundance = exp(df$NormalizedAbundance)
+  df$Protein_IDs = factor(df$Protein_IDs,
+                          levels=unique(nCounts$Protein_IDs))
+                        
+  n = length(unique(nCounts$Protein_IDs))
+  theme_set(theme_bw())
+  p = ggplot(df, aes(fill=Condition, y=NormalizedAbundance, x=Batch)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    labs(y = "Normalized abundance") +
+    #scale_y_log10() +
+    facet_wrap(~Protein_IDs, nrow=ceiling(n/16),
+               ncol=ifelse(n>=16, 16, n),
+               scale="free") +
+    theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1))  +
+    geom_errorbar(aes(ymin=NormalizedAbundance-sd, 
+                      ymax=NormalizedAbundance+sd), 
+                  width=.2,
+                  position=position_dodge(.9))+
+    ggtitle(paste0("Significant proteins")) 
+  return(list(plot=p, sig.Prot.nr=n))
+}
+
+lapply(names(rslt.list), function(i) {
+  mat = rslt.list[[i]]
+  design_matrix = design.table.list[[i]]
+  plotsigProt = plotProteins(mat, design_matrix)
+  n = plotsigProt$sig.Prot.nr
+  h=ceiling(n/16)*1.5+1
+  w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
+  pdf(paste0(OUTDIR_DA, "SigDiffProteins_", i, ".pdf"), h=h, w=w)
+  print(plotsigProt$plot)
+  dev.off()
 })
+
 ```
+
+## How many proteins are shared: upset plot
 
 ```{r}
-sigThres = 0.1
-jDENormName = paste0("Comparisons_median", sigThres)
-lapply(1:length(dataTable.list_corrrected), function(i) {
-  design.path = paste0(designP, "/design_", sample_names[i], ".tsv")
-  normalized.path = 
-    paste0(outDir, "/", sample_names[i], "/normalization/condition/median-normalized.txt")
-  out.path = paste0(outDir, "/", sample_names[i], "/differentialAnalysis/")
-  dir.create(out.path, showWarnings = F, recursive = T)
-  comparisons = c("case-control")
-  normalyzerDE(jDENormName, designPath = design.path, dataPath = normalized.path, 
-             leastRepCount = 5, condCol = "Condition", comparisons = comparisons,  
-             # leastRepCount: least replicates in each group to be returned for contrast calculations.
-             batchCol="Batch", sigThres = sigThres, outputDir = out.path)
-})
+makeUpset = function(log2FoldChange_thresh, padj_thresh) {
+  protein.list = lapply(names(rslt.list), function(i) {
+    up = as.data.frame(rslt.list[[i]]) %>% 
+      filter(logFC>log2FoldChange_thresh&adj.P.Val<padj_thresh)
+    down = as.data.frame(rslt.list[[i]]) %>% 
+      filter(logFC<log2FoldChange_thresh&adj.P.Val<padj_thresh)
+    list(up$Protein_IDs, down$Protein_IDs)
+  })  %>% setNames(names(rslt.list))
+  
+  protein.list_UP = c(protein.list[[1]][1], protein.list[[2]][1], protein.list[[3]][1]) %>% 
+    setNames(c(paste0(names(protein.list)[1], "_UP"), 
+               paste0(names(protein.list)[2], "_UP"), 
+               paste0(names(protein.list)[3], "_UP")))
+  protein.list_DOWN = c(protein.list[[1]][2], protein.list[[2]][2], protein.list[[3]][2]) %>% 
+    setNames(c(paste0(names(protein.list)[1], "_DOWN"), 
+               paste0(names(protein.list)[2], "_DOWN"), 
+               paste0(names(protein.list)[3], "_DOWN")))
+  
+  library(ComplexHeatmap)
+  pdf(paste0(OUTDIR_DA, "/Sig.Diff.proteins_upset.pdf"), h=3.5, w=6)
+  m = make_comb_mat(c(protein.list_UP, protein.list_DOWN))
+  print(UpSet(m,
+        top_annotation = upset_top_annotation(m, add_numbers = TRUE),
+        right_annotation = upset_right_annotation(m, add_numbers = TRUE),
+        comb_order = rev(order(comb_size(m))),
+        set_order = c(paste0(names(protein.list)[1], "_UP"), 
+                      paste0(names(protein.list)[2], "_UP"), 
+                      paste0(names(protein.list)[3], "_UP"),
+                      paste0(names(protein.list)[1], "_DOWN"), 
+                      paste0(names(protein.list)[2], "_DOWN"), 
+                      paste0(names(protein.list)[3], "_DOWN")),
+        column_title = paste0("Significant proteins\n(adj.P.Val<", padj_thresh, ")")))
+
+  dev.off()
+  
+  return(list(protein.list_UP=protein.list_UP, protein.list_DOWN=protein.list_DOWN))
+}
+
+log2FoldChange_thresh = 0
+padj_thresh = 0.2
+protein.list = makeUpset(log2FoldChange_thresh, padj_thresh)
+
+intersect(protein.list$protein.list_DOWN$CYTOSOLIC_DOWN, protein.list$protein.list_UP$PELLET_UP)
+#"P42766"
+intersect(protein.list$protein.list_UP$CYTOSOLIC_UP, protein.list$protein.list_DOWN$PELLET_DOWN)
+#P58549
 ```
 
-## Deliverables
+# Functional pathway analysis
 
-### Directory
+## GSEA
+
+```{r}
+print("Check whether there is duplicated gene names")
+lapply(rslt.list, function(r) {
+  length(r$Genes) %>% print()
+  length(r$Genes[!duplicated(r$Genes)]) %>% print()
+})
+print("Yes, there is, we need to keep the one with the lowest adj.p.value")
+entrez_list = lapply(rslt.list, function(r) {
+  #Convert gene symbol to Entrez ID
+  mat_logFC = r[!duplicated(r$Genes), ] %>%
+    .[, c("Genes", "logFC", "P.Value")]
+  entrez = mat_logFC %>%
+    #tibble::rownames_to_column(., "Genes") %>%
+    mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                           column = "ENTREZID", keytype = "SYMBOL", 
+                           multiVals = "first")) %>% 
+    filter(!is.na(entrez)) %>% 
+    mutate(ranking_statistic = -log10(P.Value)*sign(logFC)) %>%
+    arrange(desc(ranking_statistic))
+  setNames(entrez$ranking_statistic, entrez$entrez)
+})
+
+library(clusterProfiler)
+print("KEGG GSEA analysis")
+set.seed(1234)
+kk = lapply(entrez_list, function(gl) 
+  gseKEGG(geneList = gl,
+               organism     = 'hsa',
+               eps = 0, #eps sets the boundary for calculating the p value.
+               nPermSimple = 10000,
+               minGSSize    = 5, #minimal size of each geneSet for analyzing
+               pAdjustMethod = 'fdr',
+               pvalueCutoff = 1,
+               verbose      = FALSE)) 
+
+
+#print("Check the results")
+kk$CYTOSOLIC@result
+kk$CYTOSOLIC@result %>% filter(Description %in% "Alcoholism")
+kk$CYTOSOLIC@result %>% filter(Description %in% "Alcoholic liver disease")
+kk$CYTOSOLIC@result %>% filter(qvalue<0.05) %>% dim()
+
+
+grep("Alcohol", kk$PELLET@result$Description, value=T)
+kk$PELLET@result %>% filter(Description %in% "Alcoholism")
+kk$PELLET@result %>% filter(Description %in% "Alcoholic liver disease")
+kk$PELLET@result %>% filter(qvalue<0.05) %>% dim()
+
+#kk$SYNAPTOSOMAL@result
+kk$SYNAPTOSOMAL@result %>% filter(Description %in% "Alcoholism")
+kk$SYNAPTOSOMAL@result %>% filter(Description %in% "Alcoholic liver disease")
+kk$SYNAPTOSOMAL@result %>% filter(qvalue<0.05) %>% dim()
+
+print("Save the KEGG result to tables")
+OUTDIR_PATHDWAY = paste0(outDir, "/PathwayAnalysis/")
+dir.create(OUTDIR_PATHDWAY, recursive = T, showWarnings = F)
+source("../src/convertCoreEnrichment2Symbol.R")
+lapply(names(kk), function(i) {
+  print("Convert core_enrichment entrez id back to genes")
+  kk[[i]]@result = convertCoreEnrichment2Symbol(kk[[i]]@result)
+  xlsx.file = 
+    paste0(OUTDIR_PATHDWAY, "/KEGG_PathwayAnalysis_results_", i, ".xlsx")
+  write.xlsx(kk[[i]]@result %>% as.data.frame(), 
+    xlsx.file, 
+    sheetName = i, col.names = TRUE, 
+    row.names = F, append = F)  
+})
+
+saveRDS(kk, paste0(OUTDIR_PATHDWAY, "/KEGG_PathwayAnalysis_results.RDS"))
+```
+
+## Pathway dotplot
+
+```{r}
+print("Plot significant pathways for each compartment separately")
+print("Plot all three compartments together")
+
+```
+
+## How many pathways are shared: upset plot
+
+```{r}
+source("../src/pathwayUpset.R")
+pathway_rslt.list = lapply(kk, function(k) {
+  k@result
+})
+SampleNames = names(kk)
+pathway_rslt = pathwayUpset(pathway_rslt.list, SampleNames, qval.thresh=0.05)
+pdf(paste0(OUTDIR_PATHDWAY, "/upsetPlot.pdf"), h=3.5, w=6)
+pathway_rslt$plot
+dev.off()
+```
+
+## Look into genes associated with pathways of interest
+
+```{r}
+
+browseKEGG(kk$CYTOSOLIC, 'hsa05034')
+browseKEGG(kk$PELLET, 'hsa05010')
+
+library(pathview)
+pathview(gene.data=entrez_list$CYTOSOLIC,
+                   pathway.id='hsa03010', node.sum="sum",
+                   species="hsa", both.dirs = T, kegg.native=T,
+                   limit = list(gene=max(abs(entrez_list$CYTOSOLIC)), cpd=1))
+
+
+lapply(kk$CYTOSOLIC@result %>% 
+         filter(qvalue <0.05) %>% 
+         .[, "ID"], function(pathway) {
+  print(pathway)
+  node.sum = "sum"
+  dir.create(paste0(OUTDIR_PATHDWAY, "/Cytosolic"), showWarnings = F)
+  h = pathview(gene.data=entrez_list$CYTOSOLIC, 
+               kegg.dir = paste0(OUTDIR_PATHDWAY, "/Cytosolic/"),
+               expand.node = TRUE, kegg.native=T,
+               pathway.id=pathway, node.sum=node.sum,
+               species="hsa", both.dirs = T, same.layer = F,
+               limit = list(gene=max(abs(entrez_list$CYTOSOLIC)), cpd=1))
+  file.copy(from = paste0("./", pathway, ".pathview.png"),
+            to   = paste0(OUTDIR_PATHDWAY, "/Cytosolic/"))
+  file.remove(paste0("./", pathway, ".pathview.png")) 
+  file.remove(paste0(OUTDIR_PATHDWAY, "/Cytosolic/", pathway, ".png"))
+  file.remove(paste0(OUTDIR_PATHDWAY, "/Cytosolic/", pathway, ".xml"))
+})
+
+
+lapply(kk$PELLET@result %>% 
+         filter(qvalue < 0.05) %>% 
+         .[, "ID"], function(pathway) {
+  node.sum = "sum"
+  dir.create(paste0(OUTDIR_PATHDWAY, "/Pellet"), showWarnings = F)
+  h = pathview(gene.data=entrez_list$PELLET, 
+                   kegg.dir = paste0(OUTDIR_PATHDWAY, "/Pellet/"),
+                   expand.node = TRUE, kegg.native=T,
+                   pathway.id=pathway, node.sum=node.sum,
+                   species="hsa", both.dirs = T, same.layer = F,
+                   limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1))
+  file.copy(from = paste0("./", pathway, ".pathview.png"),
+          to   = paste0(OUTDIR_PATHDWAY, "/Pellet/"))
+  file.remove(paste0("./", pathway, ".pathview.png"))
+  file.remove(paste0(OUTDIR_PATHDWAY, "/Pellet/", pathway, ".png"))
+  file.remove(paste0(OUTDIR_PATHDWAY, "/Pellet/", pathway, ".xml"))
+})
+
+
+
+pathway="hsa00280"
+browseKEGG(kk.sig$CYTOSOLIC$up, pathway)
+pathway="hsa05016"
+browseKEGG(kk.sig$CYTOSOLIC$up, pathway)
+pathway="hsa04979"
+browseKEGG(kk.sig$CYTOSOLIC$up, pathway)
+pathway="hsa05012"
+browseKEGG(kk.sig$CYTOSOLIC$up, pathway)
+
+```
+
+## Over representation analysis
+```{r}
+
+
+lapply(rslt.list, function(r) {
+  length(r$Genes) %>% print()
+  length(r$Genes[!duplicated(r$Genes)]) %>% print()
+})
+print("Yes, there is, we need to keep the one with the lowest adj.p.value")
+entrez_list_sig = lapply(rslt.list, function(r) {
+  up = filter(r, adj.P.Val<0.2) %>%
+    filter(logFC>0)
+  down = filter(r, adj.P.Val<0.2) %>%
+    filter(logFC<0)
+  entrez_up = NULL
+  if (nrow(up)>0) {
+    #Convert gene symbol to Entrez ID
+    entrez =  up[!duplicated(up$Genes), ] %>%
+      mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                             column = "ENTREZID", keytype = "SYMBOL", 
+                             multiVals = "first")) %>% 
+      filter(!is.na(entrez))
+    entrez_up = entrez[, "entrez", drop=T] %>% as.character()    
+  }
+  entrez_down = NULL
+  if (nrow(down)>0) {
+    #Convert gene symbol to Entrez ID
+    entrez =  down[!duplicated(down$Genes), ] %>%
+      mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                             column = "ENTREZID", keytype = "SYMBOL", 
+                             multiVals = "first")) %>% 
+      filter(!is.na(entrez))
+    entrez_down = entrez[, "entrez", drop=T] %>% as.character()    
+  }
+  return(list(up=entrez_up, down=entrez_down))
+})
+
+library(clusterProfiler)
+print("KEGG GSEA analysis")
+kk.sig = lapply(entrez_list_sig, function(gl) {
+  up = gl$up
+  down = gl$down
+  kk_up = NULL
+  if (length(up)>0) {
+    set.seed(1234)
+    kk_up = enrichKEGG(gene = up,
+                   organism = 'hsa',
+                   pvalueCutoff = 1,
+                   qvalueCutoff = 1)
+  }
+  kk_down = NULL
+  if (length(down)>0) {
+    set.seed(1234)
+    kk_down = enrichKEGG(gene = down,
+                   organism = 'hsa',
+                   pvalueCutoff = 1,
+                   qvalueCutoff = 1)
+  } 
+  return(list(up=kk_up, down=kk_down))
+  })
+
+
+```
+
+
+
+# Deliverables
+
+# Directory
 
 ## Practical info
 
-### Software
+## Software
 
-## Data responsibility
+# Data responsibility
 
 The responsibility for data archiving lies with the PI of the project. We do not offer long-term storage or retrieval of data.
 
@@ -575,7 +1193,7 @@ The responsibility for data archiving lies with the PI of the project. We do not
 -   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
 -   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
 
-## Acknowledgments
+# Acknowledgments
 
 If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
 
