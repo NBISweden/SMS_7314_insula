@@ -56,7 +56,7 @@ rep_nbis_email <- "yuan.li@nbis.se"
 
 The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
 
-Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
 
 # Import and process the data
 
@@ -82,10 +82,10 @@ suppressPackageStartupMessages({
 ```{r}
 jName = "7314"
 inputP = "../data/Creative Proteomics_DATA/"
-dataP = paste0("../data/input_", jName)
-dir.create(dataP, showWarnings=F, recursive=T)
-designP = paste0("../data/design_", jName)
-dir.create(designP, showWarnings=F, recursive=T)
+# dataP = paste0("../data/input_", jName) #
+# dir.create(dataP, showWarnings=F, recursive=T) #
+designP = paste0("../data/design_", jName) #
+dir.create(designP, showWarnings=F, recursive=T) #
 outDir = "../results/rerun/"
 dir.create(outDir, recursive = T, showWarnings = F)
 ```
@@ -192,9 +192,7 @@ dataTable.list1 = suppressWarnings(map(inputfiles, function(x) {
                  colnames(dat), value=T))]
     colnames(dat) = gsub("Reporter intensity corrected ", "", colnames(dat))
     colnames(dat)[3:ncol(dat)] = paste0(colnames(dat)[3:ncol(dat)], "_G", i)
-    print("Those are supposed to be the intensity corrected for ")
-    print("Only Pellet has two pool samples for each batch, will remove them...")
-    #dat = dat %>% .[, colnames(dat)[!grepl('MIX', colnames(dat))]] 
+    print("Those are supposed to be the intensity corrected")
     colnames(dat) = gsub(" ", "_", colnames(dat))
     dat$Protein_IDs = sapply(dat$Protein_IDs, function(i) {
       strsplit(i, ";")[[1]][1]
@@ -274,8 +272,11 @@ dev.off()
 print("Add total intensity and missing value information into the design table")
 design.table.list = 
   lapply(names(design.table.list), function(i) {
-  design.table.list[[i]] %>% 
-    left_join(sum.list[[i]])
+    design.table = design.table.list[[i]] %>% 
+      left_join(sum.list[[i]])
+    design.table.filename = paste0(designP, "/design_", i, ".tsv")
+    write.table(design.table, design.table.filename, quote=F, row.names=F, sep="\t")
+    design.table
 }) %>% setNames(names(design.table.list))
 
 #save design table without ref!!!!
@@ -340,7 +341,7 @@ dataTable.list_SL = lapply(names(dataTable.list), function(i){
   data_matrix
 }) %>% setNames(names(dataTable.list))
 
-print("Check whether they do have the same total abundance:")
+print("Check whether each batch do have the same total abundance:")
 i = 1
 colSums(dataTable.list_SL[[i]][,3:ncol(dataTable.list_SL[[i]])], na.rm=T)
 i = 2
@@ -399,9 +400,9 @@ dataTable.list_SL_IRS = lapply(names(dataTable.list_SL), function(i) {
 }) %>% setNames(names(dataTable.list_SL))
 
 print("Compare the normalized results:")
-head(dataTable.list_SL_IRS[[1]])
-head(dataTable.list_SL[[1]])
-head(dataTable.list[[1]])
+# head(dataTable.list_SL_IRS[[1]])
+# head(dataTable.list_SL[[1]])
+# head(dataTable.list[[1]])
 
 pdf(paste0(OUTDIR_QC, "/Boxplot_SL_IRS.pdf"), h=4, w=10)
 lapply(names(dataTable.list_SL_IRS), function(i){
@@ -430,6 +431,8 @@ dataTable.list_SL_IRS_clean = lapply(names(dataTable.list_SL_IRS), function(i){
 }) %>% setNames(names(dataTable.list_SL_IRS))
 
 ```
+
+Above has been checked!
 
 ```{r}
 print("TMM normalization")
@@ -895,7 +898,6 @@ lapply(names(rslt.list), function(i) {
   print(plotsigProt$plot)
   dev.off()
 })
-
 ```
 
 ## How many proteins are shared: upset plot
@@ -951,7 +953,219 @@ intersect(protein.list$protein.list_UP$CYTOSOLIC_UP, protein.list$protein.list_D
 
 # Functional pathway analysis
 
-## GSEA
+## Over representation analysis
+
+Because there are a good number of significant proteins (qval\<0.2) and there are too many significant pathways detected using GSEA So here I will use ORA
+
+I will use KEGG database because it has a disease database which includes alcoholism
+
+```{r}
+print("Check whether there are duplicated gene names")
+lapply(rslt.list, function(r) {
+  length(r$Genes) %>% print()
+  length(r$Genes[!duplicated(r$Genes)]) %>% print()
+})
+
+print("Yes, there is, we need to keep the one with the lowest adj.p.value")
+entrez_list_sig = lapply(rslt.list, function(r) {
+  universe =  arrange(r, adj.P.Val) %>% .[!duplicated(.[, "Genes"]), ] %>%
+      mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                             column = "ENTREZID", keytype = "SYMBOL", 
+                             multiVals = "first")) %>% 
+      filter(!is.na(entrez)) %>% .[, "entrez", drop=T]  
+  up = filter(arrange(r, adj.P.Val), adj.P.Val<0.2) %>%
+    filter(logFC>0)
+  down = filter(arrange(r, adj.P.Val), adj.P.Val<0.2) %>%
+    filter(logFC<0)
+  entrez_up = NULL
+  if (nrow(up)>0) {
+    #Convert gene symbol to Entrez ID
+    entrez =  up[!duplicated(up$Genes), ] %>%
+      mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                             column = "ENTREZID", keytype = "SYMBOL", 
+                             multiVals = "first")) %>% 
+      filter(!is.na(entrez))
+    entrez_up = entrez[, "entrez", drop=T]    
+  }
+  entrez_down = NULL
+  if (nrow(down)>0) {
+    #Convert gene symbol to Entrez ID
+    entrez =  down[!duplicated(down$Genes), ] %>%
+      mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                             column = "ENTREZID", keytype = "SYMBOL", 
+                             multiVals = "first")) %>% 
+      filter(!is.na(entrez))
+    entrez_down = entrez[, "entrez", drop=T]  
+  }
+  return(list(up=entrez_up, down=entrez_down, backgrounGeneList=universe))
+})
+
+OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
+if (file.exists(paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"))) {
+  file.remove(paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"))
+}
+library(clusterProfiler)
+print("KEGG GSEA analysis")
+library(xlsx)
+kk.sig = lapply(names(entrez_list_sig), function(i) {
+  gl = entrez_list_sig[[i]]
+  up = gl$up %>% as.character()
+  down = gl$down %>% as.character()
+  #universe = gl$backgrounGeneList
+  kk_up = NULL
+  if (length(up)>0) {
+    set.seed(1234)
+    kk_up = enrichKEGG(gene = up,
+                   organism = 'hsa',
+                   pvalueCutoff = 1,
+                   qvalueCutoff = 1,
+                   #universe = universe,
+                   use_internal_data = F)
+    print("Convert Entrez ID back to gene symbol")
+    source("../src/convertEntrez2Symbol.R")
+    kk_up@result$geneID_Symbol = 
+      convertEntrez2Symbol(kk_up@result$geneID, mapping_list=gl$up) %>%
+      as.character()
+    write.xlsx(as.data.frame(kk_up@result), 
+             paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"),
+             sheetName = paste0(i, "_up"),
+             col.names=TRUE, row.names=FALSE,
+             append=T)
+  }
+
+  kk_down = NULL
+  if (length(down)>0) {
+    set.seed(1234)
+    kk_down = enrichKEGG(gene = down,
+                   organism = 'hsa',
+                   pvalueCutoff = 1,
+                   qvalueCutoff = 1,
+                   #universe = universe,
+                   use_internal_data = F)
+    print("Convert Entrez ID back to gene symbol")
+    kk_down@result$geneID_Symbol = 
+      convertEntrez2Symbol(kk_down@result$geneID, mapping_list=gl$down) %>%
+      as.character()
+    write.xlsx(as.data.frame(kk_down@result), 
+             paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"),
+             sheetName = paste0(i, "_down"),
+             col.names=TRUE, row.names=FALSE,
+             append=T)
+  } 
+  return(list(up=kk_up, down=kk_down))
+}) %>% setNames(names(entrez_list_sig))
+
+saveRDS(kk.sig, paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
+```
+
+### Dotplot showing significant KEGG pathways
+
+```{r}
+source("../src/makeDotplot.R")
+p1 = makeDotplot_ORA_KEGG(kk.sig, index.list=1:2, 
+                       qval.thresh=0.1)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.1.pdf"), h=16.5, w=10)
+p1
+dev.off()
+
+p1 = makeDotplot_ORA_KEGG(kk.sig, index.list=1:2, 
+                       qval.thresh=0.05)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.05.pdf"), h=10, w=10)
+p1
+dev.off()
+```
+
+### Check the raw count
+
+```{r}
+print("Since some pathways have opposite regualtion directions: up or down")
+print("Therefore we will give a check using raw data here")
+print("For the genes within the ribosome (hsa03010) pathway:")
+
+plotProteins_Raw = function(mat, design_matrix, pathway, compartment="CYTOSOLIC") {
+  pathay.genes = strsplit(kk.sig$CYTOSOLIC$down[pathway, "geneID_Symbol"], "/") %>%
+  .[[1]] 
+  pathway.proteins = dataTable.list_SL_IRS_TMM[["CYTOSOLIC"]] %>% 
+    .[.[, "Genes"] %in% pathay.genes, ] %>%
+    .[, "Protein_IDs"]
+  nCounts = mat %>% as.data.frame() %>%
+    gather(-c(Protein_IDs, Gene_names), 
+           key="sample", value="RawAbundance") %>% 
+    full_join(design_matrix, by=c("sample")) %>%
+    filter(Protein_IDs %in% pathway.proteins)
+  #library(plyr)
+  df = ddply(nCounts, .(Batch, Condition, Protein_IDs), summarize,
+             mean = round(mean(RawAbundance), 2),
+             sd = round(sd(RawAbundance), 2)) %>%
+    rename(.,c("RawAbundance" = "mean")) 
+  #df$RawAbundance = exp(df$RawAbundance)
+  df$Protein_IDs = factor(df$Protein_IDs,
+                          levels=unique(nCounts$Protein_IDs))
+                        
+  n = length(unique(nCounts$Protein_IDs))
+  theme_set(theme_bw())
+  p = ggplot(df, aes(fill=Condition, y=RawAbundance, x=Batch)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    labs(y = "Raw abundance") +
+    #scale_y_log10() +
+    facet_wrap(~Protein_IDs, nrow=ceiling(n/16),
+               ncol=ifelse(n>=16, 16, n),
+               scale="free") +
+    theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1))  +
+    geom_errorbar(aes(ymin=RawAbundance-sd, 
+                      ymax=RawAbundance+sd), 
+                  width=.2,
+                  position=position_dodge(.9))+
+    ggtitle(paste0("Significant proteins")) 
+  return(list(plot=p, sig.Prot.nr=n))
+}
+
+
+dir.create(paste0(OUTDIR_ORA, "/Checking/"), 
+           showWarnings = F,
+           recursive = T)
+print("For ribosome pathway (hsa03010)")
+pathway = "hsa03010"
+compartment = "CYTOSOLIC"
+mat = dataTable.list1[[compartment]]
+print("Check the data with the raw data table ´Data result_PELLETS (CPJS05122201-02).xlsx´")
+head(mat)
+print("It seems the same!")
+design_matrix = design.table.list[[compartment]]
+plotPathwayProt = plotProteins_Raw(mat, design_matrix, 
+                                   pathway, 
+                                   compartment=compartment)
+n = plotPathwayProt$sig.Prot.nr
+h=ceiling(n/16)*1.5+1
+w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
+pdf(paste0(OUTDIR_ORA, "/Checking/", 
+           pathway,"_",compartment,".pdf"), 
+    h=h, w=w)
+  print(plotPathwayProt$plot)
+dev.off()
+
+compartment = "PELLET"
+mat = dataTable.list1[[compartment]]
+print("Check the data with the raw data table ´Data result_PELLETS (CPJS05122201-02).xlsx´")
+head(mat)
+print("It seems the same!")
+design_matrix = design.table.list[[compartment]]
+plotPathwayProt = plotProteins_Raw(mat, design_matrix, 
+                                   pathway, 
+                                   compartment=compartment)
+n = plotPathwayProt$sig.Prot.nr
+h=ceiling(n/16)*1.5+1
+w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
+pdf(paste0(OUTDIR_ORA, "/Checking/", 
+           pathway,"_",compartment,".pdf"), 
+    h=h, w=w)
+  print(plotPathwayProt$plot)
+dev.off()
+print("Again the raw data also show opposite gene expression pattern between Cytosolic and Pellet compartments")
+print("Note: in the plot, NA: pooled samples/deleted samples")
+```
+
+### Look into genes associated with pathways of interest
 
 ```{r}
 print("Check whether there is duplicated gene names")
@@ -962,7 +1176,7 @@ lapply(rslt.list, function(r) {
 print("Yes, there is, we need to keep the one with the lowest adj.p.value")
 entrez_list = lapply(rslt.list, function(r) {
   #Convert gene symbol to Entrez ID
-  mat_logFC = r[!duplicated(r$Genes), ] %>%
+  mat_logFC =  arrange(r, adj.P.Val) %>% .[!duplicated(.[,"Genes"]), ] %>%
     .[, c("Genes", "logFC", "P.Value")]
   entrez = mat_logFC %>%
     #tibble::rownames_to_column(., "Genes") %>%
@@ -975,207 +1189,102 @@ entrez_list = lapply(rslt.list, function(r) {
   setNames(entrez$ranking_statistic, entrez$entrez)
 })
 
-library(clusterProfiler)
-print("KEGG GSEA analysis")
-set.seed(1234)
-kk = lapply(entrez_list, function(gl) 
-  gseKEGG(geneList = gl,
-               organism     = 'hsa',
-               eps = 0, #eps sets the boundary for calculating the p value.
-               nPermSimple = 10000,
-               minGSSize    = 5, #minimal size of each geneSet for analyzing
-               pAdjustMethod = 'fdr',
-               pvalueCutoff = 1,
-               verbose      = FALSE)) 
 
-
-#print("Check the results")
-kk$CYTOSOLIC@result
-kk$CYTOSOLIC@result %>% filter(Description %in% "Alcoholism")
-kk$CYTOSOLIC@result %>% filter(Description %in% "Alcoholic liver disease")
-kk$CYTOSOLIC@result %>% filter(qvalue<0.05) %>% dim()
-
-
-grep("Alcohol", kk$PELLET@result$Description, value=T)
-kk$PELLET@result %>% filter(Description %in% "Alcoholism")
-kk$PELLET@result %>% filter(Description %in% "Alcoholic liver disease")
-kk$PELLET@result %>% filter(qvalue<0.05) %>% dim()
-
-#kk$SYNAPTOSOMAL@result
-kk$SYNAPTOSOMAL@result %>% filter(Description %in% "Alcoholism")
-kk$SYNAPTOSOMAL@result %>% filter(Description %in% "Alcoholic liver disease")
-kk$SYNAPTOSOMAL@result %>% filter(qvalue<0.05) %>% dim()
-
-print("Save the KEGG result to tables")
-OUTDIR_PATHDWAY = paste0(outDir, "/PathwayAnalysis/")
-dir.create(OUTDIR_PATHDWAY, recursive = T, showWarnings = F)
-source("../src/convertCoreEnrichment2Symbol.R")
-lapply(names(kk), function(i) {
-  print("Convert core_enrichment entrez id back to genes")
-  kk[[i]]@result = convertCoreEnrichment2Symbol(kk[[i]]@result)
-  xlsx.file = 
-    paste0(OUTDIR_PATHDWAY, "/KEGG_PathwayAnalysis_results_", i, ".xlsx")
-  write.xlsx(kk[[i]]@result %>% as.data.frame(), 
-    xlsx.file, 
-    sheetName = i, col.names = TRUE, 
-    row.names = F, append = F)  
-})
-
-saveRDS(kk, paste0(OUTDIR_PATHDWAY, "/KEGG_PathwayAnalysis_results.RDS"))
-```
-
-## Pathway dotplot
-
-```{r}
-print("Plot significant pathways for each compartment separately")
-print("Plot all three compartments together")
-
-```
-
-## How many pathways are shared: upset plot
-
-```{r}
-source("../src/pathwayUpset.R")
-pathway_rslt.list = lapply(kk, function(k) {
-  k@result
-})
-SampleNames = names(kk)
-pathway_rslt = pathwayUpset(pathway_rslt.list, SampleNames, qval.thresh=0.05)
-pdf(paste0(OUTDIR_PATHDWAY, "/upsetPlot.pdf"), h=3.5, w=6)
-pathway_rslt$plot
-dev.off()
-```
-
-## Look into genes associated with pathways of interest
-
-```{r}
-
-browseKEGG(kk$CYTOSOLIC, 'hsa05034')
-browseKEGG(kk$PELLET, 'hsa05010')
-
-library(pathview)
-pathview(gene.data=entrez_list$CYTOSOLIC,
-                   pathway.id='hsa03010', node.sum="sum",
-                   species="hsa", both.dirs = T, kegg.native=T,
-                   limit = list(gene=max(abs(entrez_list$CYTOSOLIC)), cpd=1))
-
-
-lapply(kk$CYTOSOLIC@result %>% 
-         filter(qvalue <0.05) %>% 
-         .[, "ID"], function(pathway) {
-  print(pathway)
-  node.sum = "sum"
-  dir.create(paste0(OUTDIR_PATHDWAY, "/Cytosolic"), showWarnings = F)
-  h = pathview(gene.data=entrez_list$CYTOSOLIC, 
-               kegg.dir = paste0(OUTDIR_PATHDWAY, "/Cytosolic/"),
-               expand.node = TRUE, kegg.native=T,
-               pathway.id=pathway, node.sum=node.sum,
-               species="hsa", both.dirs = T, same.layer = F,
-               limit = list(gene=max(abs(entrez_list$CYTOSOLIC)), cpd=1))
-  file.copy(from = paste0("./", pathway, ".pathview.png"),
-            to   = paste0(OUTDIR_PATHDWAY, "/Cytosolic/"))
-  file.remove(paste0("./", pathway, ".pathview.png")) 
-  file.remove(paste0(OUTDIR_PATHDWAY, "/Cytosolic/", pathway, ".png"))
-  file.remove(paste0(OUTDIR_PATHDWAY, "/Cytosolic/", pathway, ".xml"))
-})
-
-
-lapply(kk$PELLET@result %>% 
-         filter(qvalue < 0.05) %>% 
+print("Show the genes in the upregulated pathways for PELLET:")
+lapply(kk.sig$PELLET$up@result %>% 
+         filter(qvalue < 0.1) %>% 
          .[, "ID"], function(pathway) {
   node.sum = "sum"
-  dir.create(paste0(OUTDIR_PATHDWAY, "/Pellet"), showWarnings = F)
+  dir.create(paste0(OUTDIR_ORA, "/Pellet"), showWarnings = F)
   h = pathview(gene.data=entrez_list$PELLET, 
-                   kegg.dir = paste0(OUTDIR_PATHDWAY, "/Pellet/"),
+                   kegg.dir = paste0(OUTDIR_ORA, "/Pellet/"),
                    expand.node = TRUE, kegg.native=T,
                    pathway.id=pathway, node.sum=node.sum,
                    species="hsa", both.dirs = T, same.layer = F,
                    limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1))
   file.copy(from = paste0("./", pathway, ".pathview.png"),
-          to   = paste0(OUTDIR_PATHDWAY, "/Pellet/"))
+          to   = paste0(OUTDIR_ORA, "/Pellet/"))
   file.remove(paste0("./", pathway, ".pathview.png"))
-  file.remove(paste0(OUTDIR_PATHDWAY, "/Pellet/", pathway, ".png"))
-  file.remove(paste0(OUTDIR_PATHDWAY, "/Pellet/", pathway, ".xml"))
+  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".png"))
+  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".xml"))
 })
 
+print("Show the genes in the downregulated pathways for PELLET:")
+lapply(kk.sig$PELLET$down@result %>% 
+         filter(qvalue < 0.1) %>% 
+         .[, "ID"], function(pathway) {
+  node.sum = "sum"
+  dir.create(paste0(OUTDIR_ORA, "/Pellet"), showWarnings = F)
+  h = pathview(gene.data=entrez_list$PELLET, 
+                   kegg.dir = paste0(OUTDIR_ORA, "/Pellet/"),
+                   expand.node = TRUE, kegg.native=T,
+                   pathway.id=pathway, node.sum=node.sum,
+                   species="hsa", both.dirs = T, same.layer = F,
+                   limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1))
+  file.copy(from = paste0("./", pathway, ".pathview.png"),
+          to   = paste0(OUTDIR_ORA, "/Pellet/"))
+  file.remove(paste0("./", pathway, ".pathview.png"))
+  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".png"))
+  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".xml"))
+})
 
+print("Show the genes in the upregulated pathways for CYTOSOLIC:")
+lapply(kk.sig$CYTOSOLIC$up@result %>% 
+         filter(qvalue < 0.1) %>% 
+         .[, "ID"], function(pathway) {
+  node.sum = "sum"
+  dir.create(paste0(OUTDIR_ORA, "/Cytosolic"), showWarnings = F)
+  pathview(gene.data=entrez_list$CYTOSOLIC, 
+                   kegg.dir = paste0(OUTDIR_ORA, "/Cytosolic/"),
+                   expand.node = TRUE, kegg.native=T,
+                   pathway.id=pathway, node.sum=node.sum,
+                   species="hsa", both.dirs = T, same.layer = F,
+                   limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1))
+  file.copy(from = paste0("./", pathway, ".pathview.png"),
+          to   = paste0(OUTDIR_ORA, "/Cytosolic/"))
+  file.remove(paste0("./", pathway, ".pathview.png"))
+  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".png"))
+  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".xml"))
+})
+  
+print("Show the genes in the downregulated pathways for CYTOSOLIC:")
+lapply(kk.sig$CYTOSOLIC$down@result %>% 
+         filter(qvalue < 0.1) %>% 
+         .[, "ID"], function(pathway) {
+  node.sum = "sum"
+  dir.create(paste0(OUTDIR_ORA, "/Cytosolic"), showWarnings = F)
+  pathview(gene.data=entrez_list$CYTOSOLIC, 
+                   kegg.dir = paste0(OUTDIR_ORA, "/Cytosolic/"),
+                   expand.node = TRUE, kegg.native=T,
+                   pathway.id=pathway, node.sum=node.sum,
+                   species="hsa", both.dirs = T, same.layer = F,
+                   limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1))
+  file.copy(from = paste0("./", pathway, ".pathview.png"),
+          to   = paste0(OUTDIR_ORA, "/Cytosolic/"))
+  file.remove(paste0("./", pathway, ".pathview.png"))
+  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".png"))
+  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".xml"))
+})
 
-pathway="hsa00280"
-browseKEGG(kk.sig$CYTOSOLIC$up, pathway)
-pathway="hsa05016"
-browseKEGG(kk.sig$CYTOSOLIC$up, pathway)
-pathway="hsa04979"
-browseKEGG(kk.sig$CYTOSOLIC$up, pathway)
-pathway="hsa05012"
-browseKEGG(kk.sig$CYTOSOLIC$up, pathway)
+print("Color: ranking statstic (Pvalue*sign(logFC)), ")
+print("or sum of the rankign statistic if there are multiple genes within a gene node")
+print("Which genes are shown: all genes from the dataset, not only limited to significant genes!")
 
+print("How to find out which genes are within each gene node?")
+print("Solution I: bioinformatically: e.g ")
+pathway="hsa03010"
+clusterProfiler::browseKEGG(kk.sig$CYTOSOLIC$down, pathway)
+print("Solution II: open manually through a web browser: e.g.")
+print("http://www.kegg.jp/kegg-bin/show_pathway?hsa03010/11224/6139/23521/6141/6143/6154/6165/9349")
+print("Where you have 3 parts:")
+print("Part I: http://www.kegg.jp/kegg-bin/show_pathway?")
+print("PartII: pathID, i.e. hsa03010 in this case")
+print("PartIII: / + item from the geneID column of the KEGG_ORA.xlsx file:")
 ```
 
-## Over representation analysis
-```{r}
-
-
-lapply(rslt.list, function(r) {
-  length(r$Genes) %>% print()
-  length(r$Genes[!duplicated(r$Genes)]) %>% print()
-})
-print("Yes, there is, we need to keep the one with the lowest adj.p.value")
-entrez_list_sig = lapply(rslt.list, function(r) {
-  up = filter(r, adj.P.Val<0.2) %>%
-    filter(logFC>0)
-  down = filter(r, adj.P.Val<0.2) %>%
-    filter(logFC<0)
-  entrez_up = NULL
-  if (nrow(up)>0) {
-    #Convert gene symbol to Entrez ID
-    entrez =  up[!duplicated(up$Genes), ] %>%
-      mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
-                             column = "ENTREZID", keytype = "SYMBOL", 
-                             multiVals = "first")) %>% 
-      filter(!is.na(entrez))
-    entrez_up = entrez[, "entrez", drop=T] %>% as.character()    
-  }
-  entrez_down = NULL
-  if (nrow(down)>0) {
-    #Convert gene symbol to Entrez ID
-    entrez =  down[!duplicated(down$Genes), ] %>%
-      mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
-                             column = "ENTREZID", keytype = "SYMBOL", 
-                             multiVals = "first")) %>% 
-      filter(!is.na(entrez))
-    entrez_down = entrez[, "entrez", drop=T] %>% as.character()    
-  }
-  return(list(up=entrez_up, down=entrez_down))
-})
-
-library(clusterProfiler)
-print("KEGG GSEA analysis")
-kk.sig = lapply(entrez_list_sig, function(gl) {
-  up = gl$up
-  down = gl$down
-  kk_up = NULL
-  if (length(up)>0) {
-    set.seed(1234)
-    kk_up = enrichKEGG(gene = up,
-                   organism = 'hsa',
-                   pvalueCutoff = 1,
-                   qvalueCutoff = 1)
-  }
-  kk_down = NULL
-  if (length(down)>0) {
-    set.seed(1234)
-    kk_down = enrichKEGG(gene = down,
-                   organism = 'hsa',
-                   pvalueCutoff = 1,
-                   qvalueCutoff = 1)
-  } 
-  return(list(up=kk_up, down=kk_down))
-  })
-
-
-```
-
-
+::: callout-note
+In native KEGG view, a gene node may represent multiple genes/proteins with similar or redundant functional role. The number of member genes range from 1 up to several tens. They are intentionally put together as a single node on pathway graphs for better clarity and readability. Therefore, we do not split node and mark each member genes separately by default. But rather we visualize the node-wise data by summarize gene-wise data, users may specify the summarization method using node.sum arguement. Poential options include "sum","mean", "median", "max", "max.abs" and "random". Default node.sum="sum". Here, we used default "sum".
+:::
 
 # Deliverables
 
