@@ -76,6 +76,13 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(ComplexHeatmap)
   library(GGally)
+  library(org.Hs.eg.db)
+  library(AnnotationDbi) 
+  library(pathview)
+  library(UniProt.ws)
+  library(GGally)
+  library(clusterProfiler)
+  library(xlsx)
 })
 ```
 
@@ -306,10 +313,10 @@ design.table.list2 = lapply(seq_along(dataTable.list), function(i) {
 
 # Normalization
 
-```{r}
+```{r, warning=FALSE, message=FALSE, error=FALSE}
 pdf(paste0(OUTDIR_QC, "/Boxplot_raw.pdf"), h=4, w=10)
-lapply(names(dataTable.list), function(i){
-  data_matrix = dataTable.list[[i]][3:ncol(dataTable.list[[i]])] %>%
+for (i in names(dataTable.list)) {
+  data_matrix = dataTable.list[[i]][3:ncol(dataTable.list[[i]])] %>%  
     as.matrix()
   boxplot(log2(data_matrix), main=paste0(i, "_Raw data_boxplot"), 
           ylab="log2 scale")
@@ -317,7 +324,7 @@ lapply(names(dataTable.list), function(i){
           ylab="log2 scale")
   plotDensities(log2(data_matrix), main = paste0(i, "_Raw data_density"),
           ylab="log2 scale")
-})
+}
 dev.off()
 
 print("Sample loading (SL) normalization")
@@ -350,7 +357,7 @@ i = 3
 colSums(dataTable.list_SL[[i]][,3:ncol(dataTable.list_SL[[i]])], na.rm=T)
 
 pdf(paste0(OUTDIR_QC, "/Boxplot_SL.pdf"), h=4, w=10)
-lapply(names(dataTable.list_SL), function(i){
+for (i in names(dataTable.list_SL)) {
   data_matrix = dataTable.list_SL[[i]][3:ncol(dataTable.list_SL[[i]])] %>%
     as.matrix()
   boxplot(log2(data_matrix), main=paste0(i, "_SL_boxplot"), 
@@ -359,7 +366,7 @@ lapply(names(dataTable.list_SL), function(i){
           ylab="log2 scale")
   plotDensities(log2(data_matrix), main = paste0(i, "_SL_density"),
           ylab="log2 scale")
-})
+}
 dev.off()
 
 ```
@@ -405,7 +412,7 @@ print("Compare the normalized results:")
 # head(dataTable.list[[1]])
 
 pdf(paste0(OUTDIR_QC, "/Boxplot_SL_IRS.pdf"), h=4, w=10)
-lapply(names(dataTable.list_SL_IRS), function(i){
+for (i in names(dataTable.list_SL_IRS)) {
   data_matrix = dataTable.list_SL_IRS[[i]][3:ncol(dataTable.list_SL_IRS[[i]])] %>%
     as.matrix()
   boxplot(log2(data_matrix), main=paste0(i, "_IRS_boxplot"), 
@@ -414,7 +421,7 @@ lapply(names(dataTable.list_SL_IRS), function(i){
           ylab="log2 scale")
   plotDensities(log2(data_matrix), main = paste0(i, "_IRS_density"),
           ylab="log2 scale")
-})
+}
 dev.off()
 
 print("Transform and clean...")
@@ -432,7 +439,6 @@ dataTable.list_SL_IRS_clean = lapply(names(dataTable.list_SL_IRS), function(i){
 
 ```
 
-Above has been checked!
 
 ```{r}
 print("TMM normalization")
@@ -451,7 +457,7 @@ dataTable.list_SL_IRS_TMM =
 }) %>% setNames(names(dataTable.list_SL_IRS_clean))
 
 pdf(paste0(OUTDIR_QC, "/Boxplot_SL_IRS_clean_TMM.pdf"), h=4, w=10)
-lapply(names(dataTable.list_SL_IRS_TMM), function(i){
+for (i in names(dataTable.list_SL_IRS_TMM)) {
   data_matrix =
     dataTable.list_SL_IRS_TMM[[i]]
   sample_names = grep("_G", colnames(data_matrix), value=T)
@@ -462,7 +468,7 @@ lapply(names(dataTable.list_SL_IRS_TMM), function(i){
           ylab="log2 scale")
   plotDensities(data_matrix, main = paste0(i, "_TMM_density"),
           ylab="log2 scale")
-})
+}
 dev.off()
 
 print("Check how many proteins are completely missing:")
@@ -524,7 +530,7 @@ print("Sort out gene names...")
 #print("Some proteins have two genes, we will only keep the 1st one if it is in the gene SYMBOL list DURING THE FUNCTIONAL PATHWAYS ANALYSIS STEP!")
 print("Some genes are obsolete, we will update it...")
 
-suppressMessages(library(org.Hs.eg.db))
+#suppressMessages(library(org.Hs.eg.db))
 symb <- keys(org.Hs.eg.db, "SYMBOL")
 
 dataTable.list_SL_IRS_TMM = lapply(dataTable.list_SL_IRS_TMM, function(dat) {
@@ -550,7 +556,7 @@ dataTable.list_SL_IRS_TMM = lapply(dataTable.list_SL_IRS_TMM, function(dat) {
   INDEX.NA = is.na(dat$Genes)
   #k <- keys(UniProt.ws, "UNIPROTKB")
   query = dat[INDEX.NA, "Protein_IDs"] #%>% setdiff(., c("Q00169", "Q9BRA0"))
-  library(UniProt.ws)
+  # library(UniProt.ws)
   Gene.Names = 
     mapUniProt("UniProtKB_AC-ID", "UniProtKB", query = query) %>%
     .[, "Gene.Names"]
@@ -606,7 +612,7 @@ lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
     as.data.frame() %>%
     tibble::rownames_to_column(var = "sample") %>%
     dplyr::full_join(design, by = "sample") 
-  library(GGally)
+  #library(GGally)
   P1=suppressMessages(ggpairs(c_pca_all,
                columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
                          "Condition", "Sex", "Age", "RIN", "PMI",
@@ -746,11 +752,11 @@ data_matrix = dataTable.list_SL_IRS_TMM[["CYTOSOLIC"]]
 sample_names = grep("_G", colnames(data_matrix), value=T)
 rownames(data_matrix) = data_matrix$Protein_IDs
 p = mt::pca.outlier(t(na.omit(data_matrix[,sample_names])))
-pdf(paste0(OUTDIR_QC, "/", i, "_PCA_plot_outlier_CYTOSOL.pdf"), h=4, w=4)
+pdf(paste0(OUTDIR_QC, "/PCA_plot_outlier_CYTOSOL.pdf"), h=4, w=4)
 p
 dev.off()
 
-print("After checking the QC plot, the RIN values for this sample have the lowest RIN values")
+print("After checking the meta data table, we can see that this sample has the lowest RIN values")
 print(", indicating a compromised sample quality")
 print("so we will remove the sample...")
 dataTable.list_SL_IRS_TMM[["CYTOSOLIC"]] = 
@@ -793,6 +799,10 @@ rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
     } else {
       if(any(tapply(is.na(abundance), tmp_data$Batch, all))){
         design = model.matrix(~0+Condition+Age, data=tmp_data,verbose=FALSE)
+        # head(design)
+        # Conditioncontrol Conditioncase Age
+        # 1                1             0  52
+        # 2                1             0  54
       }else{
         design = model.matrix(~0+Condition+Batch+Age,data=tmp_data,verbose=FALSE)
       }        
@@ -801,8 +811,14 @@ rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
       makeContrasts(contrasts = "Conditioncase-Conditioncontrol", 
                                                   levels = design)
     fit = lmFit(abundance, design=design)
+    #Fit linear model for each gene
     fit2 = contrasts.fit(fit, contrast.matrix)
+    #Given a linear model fit, compute estimated coefficients 
+    #and standard errors for a given set of contrasts.
     fit2 = eBayes(fit2, robust=T)
+    # Given a linear model fit from lmFit, compute moderated t-statistics, 
+    #moderated F-statistic, and log-odds of differential expression by 
+    #empirical Bayes moderation of the standard errors towards a global value.
     limma_table = topTable(fit2,
                             coef = 1,
                             number = Inf,
@@ -827,7 +843,7 @@ hist(rslt.list[[1]][, "adj.P.Val"], breaks = 100, xlab = "adj.P.Val")
 hist(rslt.list[[2]][, "adj.P.Val"], breaks = 100, xlab = "adj.P.Val")
 hist(rslt.list[[3]][, "adj.P.Val"], breaks = 100, xlab = "adj.P.Val")
 
-rslt.list[[1]] %>% filter(adj.P.Val <0.2)
+#rslt.list[[1]] %>% filter(adj.P.Val <0.2)
 
 sum(rslt.list[[1]]$adj.P.Val <0.2)
 sum(rslt.list[[2]]$adj.P.Val <0.2)
@@ -842,7 +858,7 @@ OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
 dir.create(OUTDIR_DA, recursive = T, showWarnings = F)
 lapply(names(rslt.list), function(i) {
   xlsx.file = 
-    paste0(OUTDIR_DA, "/Differential_Table", i, ".xlsx")
+    paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx")
   write.xlsx(rslt.list[[i]] %>% as.data.frame(), 
     xlsx.file, 
     sheetName = i, col.names = TRUE, 
@@ -851,7 +867,7 @@ lapply(names(rslt.list), function(i) {
 
 ```
 
-## Barplot of significant proteins abundance
+## Barplot of significant proteins abundance (adj.P.Val<0.2)
 
 ```{r}
 plotProteins = function(mat, design_matrix) {
@@ -863,9 +879,10 @@ plotProteins = function(mat, design_matrix) {
   #library(plyr)
   df = ddply(nCounts, .(Batch, Condition, Protein_IDs), summarize,
              mean = round(mean(NormalizedAbundance), 2),
-             sd = round(sd(NormalizedAbundance), 2)) %>%
-    rename(.,c("NormalizedAbundance" = "mean"))
-  df$NormalizedAbundance = exp(df$NormalizedAbundance)
+             sd = round(sd(NormalizedAbundance), 2)) #%>%
+    #rename(.,c("NormalizedAbundance" = "mean"))
+  #head(df)
+  df$NormalizedAbundance = exp(df$mean)
   df$Protein_IDs = factor(df$Protein_IDs,
                           levels=unique(nCounts$Protein_IDs))
                         
@@ -886,6 +903,8 @@ plotProteins = function(mat, design_matrix) {
     ggtitle(paste0("Significant proteins")) 
   return(list(plot=p, sig.Prot.nr=n))
 }
+
+#rslt.list[[i]][1:3, 1:10]
 
 lapply(names(rslt.list), function(i) {
   mat = rslt.list[[i]]
@@ -921,7 +940,7 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh) {
                paste0(names(protein.list)[2], "_DOWN"), 
                paste0(names(protein.list)[3], "_DOWN")))
   
-  library(ComplexHeatmap)
+  # library(ComplexHeatmap)
   pdf(paste0(OUTDIR_DA, "/Sig.Diff.proteins_upset.pdf"), h=3.5, w=6)
   m = make_comb_mat(c(protein.list_UP, protein.list_DOWN))
   print(UpSet(m,
@@ -955,7 +974,7 @@ intersect(protein.list$protein.list_UP$CYTOSOLIC_UP, protein.list$protein.list_D
 
 ## Over representation analysis
 
-Because there are a good number of significant proteins (qval\<0.2) and there are too many significant pathways detected using GSEA So here I will use ORA
+Because there are a good number of significant proteins (qval<0.2) and there are too many significant pathways detected using GSEA So here I will use ORA
 
 I will use KEGG database because it has a disease database which includes alcoholism
 
@@ -985,7 +1004,8 @@ entrez_list_sig = lapply(rslt.list, function(r) {
                              column = "ENTREZID", keytype = "SYMBOL", 
                              multiVals = "first")) %>% 
       filter(!is.na(entrez))
-    entrez_up = entrez[, "entrez", drop=T]    
+    entrez_up = entrez[, "entrez", drop=T] %>% 
+      setNames(., entrez[, "Genes", drop=T])  
   }
   entrez_down = NULL
   if (nrow(down)>0) {
@@ -995,20 +1015,27 @@ entrez_list_sig = lapply(rslt.list, function(r) {
                              column = "ENTREZID", keytype = "SYMBOL", 
                              multiVals = "first")) %>% 
       filter(!is.na(entrez))
-    entrez_down = entrez[, "entrez", drop=T]  
+    entrez_down = entrez[, "entrez", drop=T]  %>% 
+      setNames(entrez[, "Genes", drop=T])
   }
-  return(list(up=entrez_up, down=entrez_down, backgrounGeneList=universe))
+  return(list(up=entrez_up, down=entrez_down, 
+              backgrounGeneList=universe))
 })
 
 OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
 if (file.exists(paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"))) {
   file.remove(paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"))
 }
-library(clusterProfiler)
+```
+
+
+```{r}
+# library(clusterProfiler)
 print("KEGG GSEA analysis")
-library(xlsx)
+# library(xlsx)
 kk.sig = lapply(names(entrez_list_sig), function(i) {
   gl = entrez_list_sig[[i]]
+  #saveRDS(gl, paste0(OUTDIR_ORA, "gl.RDS"))
   up = gl$up %>% as.character()
   down = gl$down %>% as.character()
   #universe = gl$backgrounGeneList
@@ -1056,6 +1083,7 @@ kk.sig = lapply(names(entrez_list_sig), function(i) {
 }) %>% setNames(names(entrez_list_sig))
 
 saveRDS(kk.sig, paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
+# kk.sig = readRDS(paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
 ```
 
 ### Dotplot showing significant KEGG pathways
@@ -1078,31 +1106,46 @@ dev.off()
 ### Check the raw count
 
 ```{r}
-print("Since some pathways have opposite regualtion directions: up or down")
+print("Because some pathways have opposite regualtion directions: up or down, between CYTOSOL and PELLET")
 print("Therefore we will give a check using raw data here")
 print("For the genes within the ribosome (hsa03010) pathway:")
 
-plotProteins_Raw = function(mat, design_matrix, pathway, compartment="CYTOSOLIC") {
-  pathay.genes = strsplit(kk.sig$CYTOSOLIC$down[pathway, "geneID_Symbol"], "/") %>%
-  .[[1]] 
-  pathway.proteins = dataTable.list_SL_IRS_TMM[["CYTOSOLIC"]] %>% 
-    .[.[, "Genes"] %in% pathay.genes, ] %>%
+plotProteins_Raw = function(mat, design_matrix, pathway, compartment="CYTOSOLIC",
+                            regulation.direction="down") {
+  #saveRDS(list(mat=mat, design_matrix=design_matrix, pathway=pathway, compartment=compartment, regulation.direction=regulation.direction), paste0(OUTDIR_ORA, "all.RDS"))
+  #all = readRDS(paste0(OUTDIR_ORA, "all.RDS"))
+  pathway.genes = 
+    strsplit(kk.sig[[compartment]][[regulation.direction]][pathway, "geneID_Symbol"], "/") %>%
+      .[[1]] 
+  #saveRDS(pathway.genes, paste0(OUTDIR_ORA, "pathay.genes.RDS"))
+  #pathay.genes = readRDS(paste0(OUTDIR_ORA, "pathay.genes.RDS"))
+  pathway.proteins = dataTable.list_SL_IRS_TMM[[compartment]] %>% 
+    .[.[, "Genes"] %in% pathway.genes, ] %>%
     .[, "Protein_IDs"]
+  #saveRDS(pathway.proteins, paste0(OUTDIR_ORA, "pathway.proteins.RDS"))
+  #pathway.proteins = readRDS(paste0(OUTDIR_ORA, "pathway.proteins.RDS"))
+  #saveRDS(mat, paste0(OUTDIR_ORA, "mat.RDS"))
+  #mat = readRDS(paste0(OUTDIR_ORA, "mat.RDS"))
   nCounts = mat %>% as.data.frame() %>%
     gather(-c(Protein_IDs, Gene_names), 
            key="sample", value="RawAbundance") %>% 
     full_join(design_matrix, by=c("sample")) %>%
     filter(Protein_IDs %in% pathway.proteins)
   #library(plyr)
+  #saveRDS(nCounts, paste0(OUTDIR_ORA, "nCounts.RDS"))
+  #cCounts = readRDS(paste0(OUTDIR_ORA, "nCounts.RDS"))
   df = ddply(nCounts, .(Batch, Condition, Protein_IDs), summarize,
              mean = round(mean(RawAbundance), 2),
-             sd = round(sd(RawAbundance), 2)) %>%
-    rename(.,c("RawAbundance" = "mean")) 
+             sd = round(sd(RawAbundance), 2)) #%>%
+    #rename(.,c("RawAbundance" = "mean")) 
+  df$RawAbundance = df$mean
   #df$RawAbundance = exp(df$RawAbundance)
   df$Protein_IDs = factor(df$Protein_IDs,
                           levels=unique(nCounts$Protein_IDs))
-                        
+  #saveRDS(df, paste0(OUTDIR_ORA, "df.RDS")) 
+  #df = readRDS(paste0(OUTDIR_ORA, "df.RDS"))
   n = length(unique(nCounts$Protein_IDs))
+  #saveRDS(n, paste0(OUTDIR_ORA, "n.RDS"))
   theme_set(theme_bw())
   p = ggplot(df, aes(fill=Condition, y=RawAbundance, x=Batch)) + 
     geom_bar(position="dodge", stat="identity") + 
@@ -1129,12 +1172,14 @@ pathway = "hsa03010"
 compartment = "CYTOSOLIC"
 mat = dataTable.list1[[compartment]]
 print("Check the data with the raw data table ´Data result_PELLETS (CPJS05122201-02).xlsx´")
-head(mat)
+#head(mat)
 print("It seems the same!")
 design_matrix = design.table.list[[compartment]]
+regulation.direction= "down"
 plotPathwayProt = plotProteins_Raw(mat, design_matrix, 
                                    pathway, 
-                                   compartment=compartment)
+                                   compartment=compartment,
+                                   regulation.direction=regulation.direction)
 n = plotPathwayProt$sig.Prot.nr
 h=ceiling(n/16)*1.5+1
 w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
@@ -1147,12 +1192,14 @@ dev.off()
 compartment = "PELLET"
 mat = dataTable.list1[[compartment]]
 print("Check the data with the raw data table ´Data result_PELLETS (CPJS05122201-02).xlsx´")
-head(mat)
+#head(mat)
 print("It seems the same!")
 design_matrix = design.table.list[[compartment]]
+regulation.direction = "up"
 plotPathwayProt = plotProteins_Raw(mat, design_matrix, 
                                    pathway, 
-                                   compartment=compartment)
+                                   compartment=compartment,
+                                   regulation.direction=regulation.direction)
 n = plotPathwayProt$sig.Prot.nr
 h=ceiling(n/16)*1.5+1
 w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
@@ -1161,7 +1208,8 @@ pdf(paste0(OUTDIR_ORA, "/Checking/",
     h=h, w=w)
   print(plotPathwayProt$plot)
 dev.off()
-print("Again the raw data also show opposite gene expression pattern between Cytosolic and Pellet compartments")
+print("Again the raw data also show opposite gene expression pattern 
+      between Cytosolic and Pellet compartments")
 print("Note: in the plot, NA: pooled samples/deleted samples")
 ```
 
@@ -1213,17 +1261,19 @@ print("Show the genes in the downregulated pathways for PELLET:")
 lapply(kk.sig$PELLET$down@result %>% 
          filter(qvalue < 0.1) %>% 
          .[, "ID"], function(pathway) {
+  print(pathway)
   node.sum = "sum"
   dir.create(paste0(OUTDIR_ORA, "/Pellet"), showWarnings = F)
-  h = pathview(gene.data=entrez_list$PELLET, 
+  h = try(pathview(gene.data=entrez_list$PELLET, 
                    kegg.dir = paste0(OUTDIR_ORA, "/Pellet/"),
                    expand.node = TRUE, kegg.native=T,
                    pathway.id=pathway, node.sum=node.sum,
                    species="hsa", both.dirs = T, same.layer = F,
-                   limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1))
-  file.copy(from = paste0("./", pathway, ".pathview.png"),
-          to   = paste0(OUTDIR_ORA, "/Pellet/"))
-  file.remove(paste0("./", pathway, ".pathview.png"))
+                   limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1)),
+           TRUE)
+  try(file.copy(from = paste0("./", pathway, ".pathview.png"),
+          to   = paste0(OUTDIR_ORA, "/Pellet/")), TRUE)
+  try(file.remove(paste0("./", pathway, ".pathview.png")), TRUE)
   #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".png"))
   #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".xml"))
 })
@@ -1268,7 +1318,8 @@ lapply(kk.sig$CYTOSOLIC$down@result %>%
 
 print("Color: ranking statstic (Pvalue*sign(logFC)), ")
 print("or sum of the rankign statistic if there are multiple genes within a gene node")
-print("Which genes are shown: all genes from the dataset, not only limited to significant genes!")
+print("Which genes are shown: all genes from the dataset that belong to one pathway, 
+      not only limited to significant genes!")
 
 print("How to find out which genes are within each gene node?")
 print("Solution I: bioinformatically: e.g ")
@@ -1280,6 +1331,7 @@ print("Where you have 3 parts:")
 print("Part I: http://www.kegg.jp/kegg-bin/show_pathway?")
 print("PartII: pathID, i.e. hsa03010 in this case")
 print("PartIII: / + item from the geneID column of the KEGG_ORA.xlsx file:")
+print("/11224/6139/23521/6141/6143/6154/6165/9349")
 ```
 
 ::: callout-note
