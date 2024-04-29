@@ -63,6 +63,7 @@ Because there is a big batch effect (between G1 and G2, see the PCA plot in ../r
 ```{r}
 suppressPackageStartupMessages({
   library(readxl)
+  
   library(purrr)
   library(EDASeq)
   library(limma)
@@ -438,7 +439,6 @@ dataTable.list_SL_IRS_clean = lapply(names(dataTable.list_SL_IRS), function(i){
 }) %>% setNames(names(dataTable.list_SL_IRS))
 
 ```
-
 
 ```{r}
 print("TMM normalization")
@@ -867,7 +867,7 @@ lapply(names(rslt.list), function(i) {
 
 ```
 
-## Barplot of significant proteins abundance (adj.P.Val<0.2)
+## Barplot of significant proteins abundance (adj.P.Val\<0.2)
 
 ```{r}
 plotProteins = function(mat, design_matrix) {
@@ -974,7 +974,7 @@ intersect(protein.list$protein.list_UP$CYTOSOLIC_UP, protein.list$protein.list_D
 
 ## Over representation analysis
 
-Because there are a good number of significant proteins (qval<0.2) and there are too many significant pathways detected using GSEA So here I will use ORA
+Because there are a good number of significant proteins (qval\<0.2) and there are too many significant pathways detected using GSEA So here I will use ORA
 
 I will use KEGG database because it has a disease database which includes alcoholism
 
@@ -1027,7 +1027,6 @@ if (file.exists(paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"))) {
   file.remove(paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"))
 }
 ```
-
 
 ```{r}
 # library(clusterProfiler)
