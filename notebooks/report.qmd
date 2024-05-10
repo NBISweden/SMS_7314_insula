@@ -148,32 +148,32 @@ design.table.list = suppressWarnings(map(seq_along(dataTable.list0), function(i)
 })) %>% setNames(sample_names)
 
 moreMeta <- tibble::tribble(
-  ~sampleID,     ~Sex,    ~Age,  ~RIN,   ~PMI,  ~Condition,
- #---------|-----------|------|-------|-------|-----------|
-  "13005",      "Male",     45,    7.4,   8.48,     "case",
-  "13172",      "Male",     49,    9.4,   7.32,     "case",
-  "13189",    "Female",     59,    7.8,    7.5,     "case",
-  "13193",      "Male",     38,    9.5,   7.78,     "case",
-  "13234",    "Female",     51,    9.6,  10.12,     "case",
-  "13246",      "Male",     59,    8.8,    9.5,     "case",
-  "13271",      "Male",     65,    7.1,  11.97,     "case",
-  "13296",      "Male",     55,    8.9,   7.68,     "case",
-  "13327",      "Male",     58,    8.3,    6.7,     "case",
-  "13346",      "Male",     53,    7.0,    9.3,     "case",
-  "13211",      "Male",     52,    8.8,  12.33,     "case",
-  "13504",      "Male",     50,    7.1,  11.25,     "case",
-  "13350",      "Male",     45,    8.9,   7.08,  "control",
-  "13259",      "Male",     48,    8.5,   8.25,  "control",
-  "13475",    "Female",     58,    7.8,   8.75,  "control", 
-  "13414",      "Male",     41,    8.1,   9.85,  "control",
-  "13149",    "Female",     46,    7.5,    7.6,  "control",
-  "13645",      "Male",     58,    9.3,   14.4,  "control",
-  "13428",      "Male",     64,    9.0,   9.22,  "control",
-  "13048",      "Male",     54,    9.3,    8.4,  "control",
-  "13170",      "Male",     59,    8.9,  11.65,  "control",
-  "13032",      "Male",     52,    8.1,   8.97,  "control",
-  "13068",      "Male",     48,    9.5,  12.78,  "control",
-  "13298",      "Male",     50,    8.5,  10.67,  "control",
+  ~sampleID,     ~Sex,    ~Age,  ~RIN,   ~PMI,  ~Condition,    pH, TissueStorageTime_months
+ #---------|-----------|------|-------|-------|------------|------|------------------------|
+  "13005",      "Male",     45,    7.4,   8.48,     "case",   6.2,                   109.4,
+  "13172",      "Male",     49,    9.4,   7.32,     "case",   6.6,                    85.6,
+  "13189",    "Female",     59,    7.8,    7.5,     "case",   6.1,                    84.2,
+  "13193",      "Male",     38,    9.5,   7.78,     "case",   6.7,                    83.5,
+  "13234",    "Female",     51,    9.6,  10.12,     "case",   6.8,                    78.2,
+  "13246",      "Male",     59,    8.8,    9.5,     "case",   6.2,                    76.7,
+  "13271",      "Male",     65,    7.1,  11.97,     "case",   6.3,                    72.4,
+  "13296",      "Male",     55,    8.9,   7.68,     "case",   6.5,                    69.4,
+  "13327",      "Male",     58,    8.3,    6.7,     "case",   6.3,                    65.4,
+  "13346",      "Male",     53,    7.0,    9.3,     "case",   6.2,                    63.3,
+  "13211",      "Male",     52,    8.8,  12.33,     "case",   6.1,                    81.1,
+  "13504",      "Male",     50,    7.1,  11.25,     "case",   6.5,                    44.2,
+  "13350",      "Male",     45,    8.9,   7.08,  "control",   6.7,                    62.7,
+  "13259",      "Male",     48,    8.5,   8.25,  "control",   6.3,                    74.8,
+  "13475",    "Female",     58,    7.8,   8.75,  "control",   6.8,                    48.5,
+  "13414",      "Male",     41,    8.1,   9.85,  "control",   6.7,                    54.5,
+  "13149",    "Female",     46,    7.5,    7.6,  "control",   6.3,                    88.3,
+  "13645",      "Male",     58,    9.3,   14.4,  "control",   6.5,                    23.0,
+  "13428",      "Male",     64,    9.0,   9.22,  "control",   6.7,                    53.5,
+  "13048",      "Male",     54,    9.3,    8.4,  "control",   6.8,                   103.2,
+  "13170",      "Male",     59,    8.9,  11.65,  "control",   6.7,                    86.0,
+  "13032",      "Male",     52,    8.1,   8.97,  "control",   6.4,                   105.9,
+  "13068",      "Male",     48,    9.5,  12.78,  "control",   6.8,                   100.1,
+  "13298",      "Male",     50,    8.5,  10.67,  "control",   6.7,                    69.3,
 )
 
 design.table.list = lapply(design.table.list, function(t) {
@@ -275,7 +275,7 @@ sum.list = lapply(names(dataTable.list), function(i) {
   print(p2)
   return(mat)
 }) %>% setNames(names(dataTable.list))
-dev.off()
+invisible(dev.off())
 
 print("Add total intensity and missing value information into the design table")
 design.table.list = 
@@ -321,12 +321,12 @@ for (i in names(dataTable.list)) {
     as.matrix()
   boxplot(log2(data_matrix), main=paste0(i, "_Raw data_boxplot"), 
           ylab="log2 scale")
-  plotRLE(log2(data_matrix), main=paste0(i, "_Raw data_RLE"),
+  plotRLE(data_matrix, main=paste0(i, "_Raw data_RLE"),
           ylab="log2 scale")
   plotDensities(log2(data_matrix), main = paste0(i, "_Raw data_density"),
           ylab="log2 scale")
 }
-dev.off()
+invisible(dev.off())
 
 print("Sample loading (SL) normalization")
 print("——Normalize on total abundance...")
@@ -363,12 +363,12 @@ for (i in names(dataTable.list_SL)) {
     as.matrix()
   boxplot(log2(data_matrix), main=paste0(i, "_SL_boxplot"), 
           ylab="log2 scale")
-  plotRLE(log2(data_matrix), main=paste0(i, "_SL_RLE"),
+  plotRLE(data_matrix, main=paste0(i, "_SL_RLE"),
           ylab="log2 scale")
   plotDensities(log2(data_matrix), main = paste0(i, "_SL_density"),
           ylab="log2 scale")
 }
-dev.off()
+invisible(dev.off())
 
 ```
 
@@ -418,12 +418,12 @@ for (i in names(dataTable.list_SL_IRS)) {
     as.matrix()
   boxplot(log2(data_matrix), main=paste0(i, "_IRS_boxplot"), 
           ylab="log2 scale")
-  plotRLE(log2(data_matrix), main=paste0(i, "_IRS_RLE"),
+  plotRLE(data_matrix, main=paste0(i, "_IRS_RLE"),
           ylab="log2 scale")
   plotDensities(log2(data_matrix), main = paste0(i, "_IRS_density"),
           ylab="log2 scale")
 }
-dev.off()
+invisible(dev.off())
 
 print("Transform and clean...")
 dataTable.list_SL_IRS_clean = lapply(names(dataTable.list_SL_IRS), function(i){
@@ -464,12 +464,12 @@ for (i in names(dataTable.list_SL_IRS_TMM)) {
   data_matrix = data_matrix[, sample_names] %>% as.matrix()
   boxplot(data_matrix, main=paste0(i, "_TMM_boxplot"),
           ylab="log2 scale")
-  plotRLE(data_matrix, main=paste0(i, "_TMM_RLE"),
+  plotRLE(2^data_matrix, main=paste0(i, "_TMM_RLE"),
           ylab="log2 scale")
   plotDensities(data_matrix, main = paste0(i, "_TMM_density"),
           ylab="log2 scale")
 }
-dev.off()
+invisible(dev.off())
 
 print("Check how many proteins are completely missing:")
 lapply(dataTable.list, function(d) {
@@ -573,7 +573,6 @@ dataTable.list_SL_IRS_TMM = lapply(dataTable.list_SL_IRS_TMM, function(dat) {
   dat
 })
   
-
 # library(UniProt.ws)
 # up <- UniProt.ws(taxId=9606)
 ```
@@ -737,7 +736,7 @@ lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
          y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
   print(cowplot::plot_grid(p18, p19, p20, p202, ncol=2, labels=i))
   
-  dev.off()
+  invisible(dev.off())
 })
 
 ```
@@ -767,6 +766,22 @@ print("Remove this sample from the design table as well...")
 design.table.list$CYTOSOLIC =
   design.table.list$CYTOSOLIC %>% filter(!(sample %in% "133C_G2"))
 
+# Save the normalized counts
+saveRDS(dataTable.list_SL_IRS_TMM, 
+        paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+
+rm(data_matrix, dataTable.list, dataTable.list0, dataTable.list_SL, 
+   dataTable.list_SL_IRS, dataTable.list_SL_IRS_clean)
+options(java.parameters = "-Xmx1000m")
+if (file.exists(paste0(OUTDIR_QC, "NormalizedIntensity.xlsx"))) {
+  file.remove(paste0(OUTDIR_QC, "NormalizedIntensity.xlsx"))
+}
+invisible(lapply(seq_along(dataTable.list_SL_IRS_TMM), function(i) {
+    write.xlsx(as.data.frame(dataTable.list_SL_IRS_TMM[[i]]), 
+             paste0(OUTDIR_QC, "NormalizedIntensity.xlsx"),
+             sheetName = names(dataTable.list_SL_IRS_TMM)[i],
+             col.names=TRUE, row.names=FALSE,
+             append=T)}))
 ```
 
 # Statistical test
@@ -915,7 +930,7 @@ lapply(names(rslt.list), function(i) {
   w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
   pdf(paste0(OUTDIR_DA, "SigDiffProteins_", i, ".pdf"), h=h, w=w)
   print(plotsigProt$plot)
-  dev.off()
+  invisible(dev.off())
 })
 ```
 
@@ -955,7 +970,7 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh) {
                       paste0(names(protein.list)[3], "_DOWN")),
         column_title = paste0("Significant proteins\n(adj.P.Val<", padj_thresh, ")")))
 
-  dev.off()
+  invisible(dev.off())
   
   return(list(protein.list_UP=protein.list_UP, protein.list_DOWN=protein.list_DOWN))
 }
@@ -968,6 +983,31 @@ intersect(protein.list$protein.list_DOWN$CYTOSOLIC_DOWN, protein.list$protein.li
 #"P42766"
 intersect(protein.list$protein.list_UP$CYTOSOLIC_UP, protein.list$protein.list_DOWN$PELLET_DOWN)
 #P58549
+```
+
+## How many shared: statistics
+
+```{r}
+source("../src/Overlapping_statistics.R")
+pdf(paste0(OUTDIR_DA, "/Overlapping_statistics.pdf"), h=3, w=7.6)
+list1 = rslt.list[[1]]
+list2 = rslt.list[[2]]
+name1 = names(rslt.list)[1]
+name2 = names(rslt.list)[2]
+deplots(list1, list2, name1, name2)
+
+list1 = rslt.list[[1]]
+list2 = rslt.list[[3]]
+name1 = names(rslt.list)[1]
+name2 = names(rslt.list)[3]
+deplots(list1, list2, name1, name2, Chisq_test=F)
+
+list1 = rslt.list[[2]]
+list2 = rslt.list[[3]]
+name1 = names(rslt.list)[2]
+name2 = names(rslt.list)[3]
+deplots(list1, list2, name1, name2, Chisq_test=F)
+invisible(dev.off())
 ```
 
 # Functional pathway analysis
