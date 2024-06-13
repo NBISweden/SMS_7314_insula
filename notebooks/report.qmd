@@ -21,8 +21,19 @@ format:
   docx: default
 language:
   code-summary: Click to show code
+editor_options:
+  chunk_output_type: inline
 editor: visual
 ---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+```
 
 ```{r,echo=FALSE,include=FALSE}
 # project variables
@@ -63,7 +74,6 @@ Because there is a big batch effect (between G1 and G2, see the PCA plot in ../r
 ```{r}
 suppressPackageStartupMessages({
   library(readxl)
-  
   library(purrr)
   library(EDASeq)
   library(limma)
@@ -83,7 +93,8 @@ suppressPackageStartupMessages({
   library(UniProt.ws)
   library(GGally)
   library(clusterProfiler)
-  library(xlsx)
+  library(ggrepel)
+  library(enrichR)
 })
 ```
 
@@ -148,8 +159,8 @@ design.table.list = suppressWarnings(map(seq_along(dataTable.list0), function(i)
 })) %>% setNames(sample_names)
 
 moreMeta <- tibble::tribble(
-  ~sampleID,     ~Sex,    ~Age,  ~RIN,   ~PMI,  ~Condition,    pH, TissueStorageTime_months
- #---------|-----------|------|-------|-------|------------|------|------------------------|
+  ~sampleID,     ~Sex,    ~Age,  ~RIN,   ~PMI,  ~Condition,   ~pH, ~TissueStorageTime_months,
+ #---------|-----------|------|-------|-------|------------|------|--------------------------|
   "13005",      "Male",     45,    7.4,   8.48,     "case",   6.2,                   109.4,
   "13172",      "Male",     49,    9.4,   7.32,     "case",   6.6,                    85.6,
   "13189",    "Female",     59,    7.8,    7.5,     "case",   6.1,                    84.2,
@@ -287,7 +298,27 @@ design.table.list =
     design.table
 }) %>% setNames(names(design.table.list))
 
-#save design table without ref!!!!
+# design.table.list = lapply(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"), function(i) {
+#   read_table(paste0(designP, "/design_", i, ".tsv"))
+# }) %>% setNames(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"))
+
+RINvsPH = function(table) {
+  pl = ggplot(table, aes(x=RIN, y=pH)) +
+    geom_point() 
+  vars = gsub("~", "", as.character(pl$mapping))
+  names(vars) = names(pl$mapping)
+  #pllm = lm(formula = pl$data[,vars["x"], drop=T] ~ pl$data[,vars["y"], drop=T])
+  pl + geom_smooth(method = "lm", formula = "y~x") + 
+    annotate("text", x = Inf, y = -Inf, hjust = 1.2, vjust = -2,
+             label = paste0("Correlation = ", 
+             cor(pl$data[,vars["x"], drop=T], pl$data[,vars["y"], drop=T], method = 'pearson') %>%
+               round(., 2)))  
+}
+
+pdf(paste0(OUTDIR_QC, "/RINvsPH.pdf"), h=3, w=4)
+RINvsPH(design.table.list$CYTOSOLIC)
+dev.off()
+RINvsPH(design.table.list$CYTOSOLIC)
 ```
 
 ```{r}
@@ -593,157 +624,90 @@ print("Check Protein IDs...")
 ## PCA
 
 ```{r}
-lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
-  data_matrix = dataTable.list_SL_IRS_TMM[[i]]
-  sample_names = grep("_G", colnames(data_matrix), value=T)
-  rownames(data_matrix) = data_matrix$Protein_IDs
-  c_pca = prcomp(t(na.omit(data_matrix[,sample_names])), 
-                 scale=TRUE, center = TRUE)
-  frac_var = function(x) x^2/sum(x^2)
-  design = design.table.list[[i]]
-  design$Age_group = ifelse(design$Age<=45, "0-45", 
-              ifelse(design$Age<=55, "46-55", "56-65"))
-  var_explained = c_pca$sdev %>% 
-    tibble::as_tibble() %>% 
-    frac_var() %>% 
-    round(digits = 2)
-  c_pca_all <- c_pca$x %>%
-    as.data.frame() %>%
-    tibble::rownames_to_column(var = "sample") %>%
-    dplyr::full_join(design, by = "sample") 
-  #library(GGally)
-  P1=suppressMessages(ggpairs(c_pca_all,
-               columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
-                         "Condition", "Sex", "Age", "RIN", "PMI",
-                         "Total_intensity", "MissingValues"),
-               mapping=aes(color=Batch), upper=list(continuous='blank'),
-               main="Colored by Batch"))
-  P2=suppressMessages(ggpairs(c_pca_all,
-               columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
-                         "Condition", "Sex", "Age", "RIN", "PMI",
-                         "Total_intensity", "MissingValues"),
-               mapping=aes(color=Condition), upper=list(continuous='blank'),
-               main="Colored by Condition"))
-  pdf(paste0(OUTDIR_QC, "/", i, "_PCA_plot.pdf"), h=7.5, w=10)
-  print(P1)
-  print(P2)
-  
-  p3 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Batch, col=Condition)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
-  p4 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Batch, col=Condition)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
-  p5 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Batch, col=Condition)) +
-    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
-  p52 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Batch, col=Condition)) +
-    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
-  print(cowplot::plot_grid(p3, p4, p5, p52, ncol=2, labels=i))
-  
-  p6 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=RIN)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
-  p7 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=RIN)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
-  p8 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=RIN)) +
-    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
-  p82 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=RIN)) +
-    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
-  print(cowplot::plot_grid(p6, p7, p8, p82, ncol=2, labels=i))
-  
-  p9 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=PMI)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
-  p10 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=PMI)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
-  p11 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=PMI)) +
-    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
-  p112 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=PMI)) +
-    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
-  print(cowplot::plot_grid(p9, p10, p11, p112, ncol=2, labels=i))
-  
-  p12 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=Age)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
-  p13 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=Age)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
-  p14 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=Age)) +
-    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
-  p142 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=Age)) +
-    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
-  print(cowplot::plot_grid(p12, p13, p14, p142, ncol=2, labels=i))
-  
-  p15 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=Total_intensity)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
-  p16 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=Total_intensity)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
-  p17 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=Total_intensity)) +
-    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
-  p172 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=Total_intensity)) +
-    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
-  print(cowplot::plot_grid(p15, p16, p17, p172, ncol=2, labels=i))
-  
-  p18 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=MissingValues)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
-  p19 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=MissingValues)) +
-    labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
-  p20 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=MissingValues)) +
-    labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
-  p202 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
-    geom_point(size = 3, aes(shape = Sex, col=MissingValues)) +
-    labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
-         y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
-  print(cowplot::plot_grid(p18, p19, p20, p202, ncol=2, labels=i))
-  
-  invisible(dev.off())
-})
+makePCAplot = 
+  function(dataTable.list_SL_IRS_TMM, design.table.list, 
+           DEGs=NULL, onlyDEGs =FALSE){
+    invisible(lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+      if (onlyDEGs) {
+        data_matrix = dataTable.list_SL_IRS_TMM[[i]] %>% 
+          filter(Protein_IDs %in% DEGtops[[i]]) 
+      } else {
+        data_matrix = dataTable.list_SL_IRS_TMM[[i]]
+      }
+      sample_names = grep("_G", colnames(data_matrix), value=T)
+      rownames(data_matrix) = data_matrix$Protein_IDs
+      c_pca = prcomp(t(na.omit(data_matrix[,sample_names])), 
+                     scale=TRUE, center = TRUE)
+      frac_var = function(x) x^2/sum(x^2)
+      design = design.table.list[[i]]
+      design$Age_group = ifelse(design$Age<=45, "0-45", 
+                                ifelse(design$Age<=55, "46-55", "56-65"))
+      var_explained = c_pca$sdev %>% 
+        tibble::as_tibble() %>% 
+        frac_var() %>% 
+        round(digits = 2)
+      c_pca_all <- c_pca$x %>%
+        as.data.frame() %>%
+        tibble::rownames_to_column(var = "sample") %>%
+        dplyr::full_join(design, by = "sample") 
+      #library(GGally)
+      P1=suppressMessages(ggpairs(c_pca_all,
+                                  columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
+                                            "Condition", "Sex", "Age", "RIN", "PMI",
+                                            "Total_intensity", "MissingValues"),
+                                  mapping=aes(color=Batch), upper=list(continuous='blank'),
+                                  main="Colored by Batch"))
+      P2=suppressMessages(ggpairs(c_pca_all,
+                                  columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
+                                            "Condition", "Sex", "Age", "RIN", "PMI",
+                                            "Total_intensity", "MissingValues"),
+                                  mapping=aes(color=Condition), upper=list(continuous='blank'),
+                                  main="Colored by Condition"))
+      FILE = ifelse(onlyDEGs, paste0(OUTDIR_QC, "/", i, "_PCA_plot_onDEGs.pdf"),
+                    paste0(OUTDIR_QC, "/", i, "_PCA_plot.pdf"))
+      pdf(FILE, h=7.5, w=10)
+      print(P1)
+      print(P2)
+      
+      vars = list(c("Batch", "Condition"),
+                  c("Condition", "RIN"),
+                  c("Condition", "Sex"),
+                  c("Condition", "PMI"),
+                  c("Condition", "Age"),
+                  c("Condition", "Total_intensity"),
+                  c("Condition", "MissingValues"),
+                  c("Condition", "pH"),
+                  c("Condition", "TissueStorageTime_months"))
+      lapply(vars, function(V) {
+        p3 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
+          geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+               y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+        p4 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
+          geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+               y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+        p5 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
+          geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+          labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
+               y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
+        p52 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
+          geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+          labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+               y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
+        print(cowplot::plot_grid(p3, p4, p5, p52, ncol=2, labels=i))    
+      })
+      invisible(dev.off())
+  }))    
+}
 
+makePCAplot(dataTable.list_SL_IRS_TMM, design.table.list, 
+           DEGs=NULL, onlyDEGs =FALSE)
 ```
 
 ## Outlier
 
-From the PCA plot, we can see that cytosolic comparment may have an outlier
+From the prelimiary PCA plots, we know that cytosolic comparment may have an outlier, here we will have a check
 
 ```{r}
 # Outlier detection by the Mahalanobis distances of PC1 and PC2. Also plot PC1 and PC2 with its confidence ellipse.
@@ -769,6 +733,8 @@ design.table.list$CYTOSOLIC =
 # Save the normalized counts
 saveRDS(dataTable.list_SL_IRS_TMM, 
         paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+# dataTable.list_SL_IRS_TMM =
+#   readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
 
 rm(data_matrix, dataTable.list, dataTable.list0, dataTable.list_SL, 
    dataTable.list_SL_IRS, dataTable.list_SL_IRS_clean)
@@ -777,6 +743,7 @@ if (file.exists(paste0(OUTDIR_QC, "NormalizedIntensity.xlsx"))) {
   file.remove(paste0(OUTDIR_QC, "NormalizedIntensity.xlsx"))
 }
 invisible(lapply(seq_along(dataTable.list_SL_IRS_TMM), function(i) {
+    options(java.parameters = "-Xmx3000m")
     write.xlsx(as.data.frame(dataTable.list_SL_IRS_TMM[[i]]), 
              paste0(OUTDIR_QC, "NormalizedIntensity.xlsx"),
              sheetName = names(dataTable.list_SL_IRS_TMM)[i],
@@ -880,6 +847,95 @@ lapply(names(rslt.list), function(i) {
     row.names = F, append = F)  
 })
 
+# rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+#   read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+#                  sheet=1, col_names=TRUE, na="", skip=0)
+# }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+```
+
+Volcano plot
+
+```{r}
+doVolcano = function(resi, NAME, lfcShrink=F) {
+  selectedCols <- c("Protein_IDs", "logFC", "P.Value", "adj.P.Val")
+  toExport <- resi[, selectedCols]
+  toExport <- toExport[order(toExport$P.Value),]
+
+  tmp <- as.data.frame(toExport) %>%
+    filter(!is.na(adj.P.Val)) %>%
+    mutate(sig = ifelse(adj.P.Val<0.2,
+                        ifelse(logFC > 0, "up", "down"), "nonSig"))
+  tmpSignif <- tmp %>%
+    filter(P.Value < quantile(tmp$P.Value, 0.001))
+  
+  p = ggplot(data = tmp, aes(logFC, -log10(adj.P.Val), col = sig)) + 
+    geom_point() + 
+    xlab("Log2 Fold Change") +
+    geom_text_repel(data = tmpSignif, aes(logFC, -log10(adj.P.Val), 
+                                          label = Protein_IDs)) +
+    geom_hline(yintercept = -log10(0.2), lty = 2) +
+    geom_vline(xintercept = c(-log2(0), log2(0)), lty = 2) + 
+    scale_colour_manual(values = c("blue", "black", "red")) + 
+    theme(legend.position="none") +
+    ggtitle(ifelse(lfcShrink, paste0(NAME, "_lfcShrink"), paste0(NAME, "")))
+  
+  return(p)
+}
+
+NAMES = names(rslt.list)
+for (i in seq_along(rslt.list)) {
+  p = doVolcano(rslt.list[[i]], NAME=NAMES[i], lfcShrink=F)
+  assign(paste0("P", i), p)
+}
+cowplot::plot_grid(P1, P2, P3, ncol=2, nrow=2)
+
+pdf(paste0(OUTDIR_DA, "Volcano_plot.pdf"), h=8, w=10)
+cowplot::plot_grid(P1, P2, P3, ncol=2, nrow=2)
+invisible(dev.off())
+```
+
+MA plot
+
+```{r}
+# dataTable.list_SL_IRS_TMM =
+#   readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+# 
+# rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+#   read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+#                  sheet=1, col_names=TRUE, na="", skip=0)
+#   }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+pdf(paste0(OUTDIR_DA, "MA_plot.pdf"), h=3, w=3)
+invisible(lapply(seq_along(rslt.list), function(i) {
+  obj = rslt.list[[i]]
+  name = names(rslt.list)[i]
+  print(ggplot(obj, aes(x=AveExpr, y=logFC)) +
+    geom_point() +
+    geom_line(y=0, col="red") +
+    ggtitle(paste0(name, "_MA plot")) +
+    theme_bw())
+}))
+invisible(dev.off())
+```
+
+## PCA on DEGs
+
+NOTE: the batch effects were not removed from those PCA plots
+
+```{r}
+DEGtops = lapply(seq_along(rslt.list), function(d) {
+  if (d<3) {
+    rslt.list[[d]] %>% filter(adj.P.Val<0.2) %>%
+      pull(Protein_IDs)   
+  } else {
+    rslt.list[[d]] %>% top_n(n = 20, wt=adj.P.Val) %>%
+      pull(Protein_IDs)
+  }
+}) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+makePCAplot(dataTable.list_SL_IRS_TMM, design.table.list, 
+           DEGs=DEGtops, onlyDEGs =TRUE)
+    
 ```
 
 ## Barplot of significant proteins abundance (adj.P.Val\<0.2)
@@ -1026,100 +1082,111 @@ lapply(rslt.list, function(r) {
 })
 
 print("Yes, there is, we need to keep the one with the lowest adj.p.value")
-entrez_list_sig = lapply(rslt.list, function(r) {
-  universe =  arrange(r, adj.P.Val) %>% .[!duplicated(.[, "Genes"]), ] %>%
+getEntrez = function(rslt.list, sig.level) {
+  entrez_list_sig = lapply(rslt.list, function(r) {
+    universe =  arrange(r, adj.P.Val) %>% .[!duplicated(.[, "Genes"]), ] %>%
       mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
                              column = "ENTREZID", keytype = "SYMBOL", 
                              multiVals = "first")) %>% 
       filter(!is.na(entrez)) %>% .[, "entrez", drop=T]  
-  up = filter(arrange(r, adj.P.Val), adj.P.Val<0.2) %>%
-    filter(logFC>0)
-  down = filter(arrange(r, adj.P.Val), adj.P.Val<0.2) %>%
-    filter(logFC<0)
-  entrez_up = NULL
-  if (nrow(up)>0) {
-    #Convert gene symbol to Entrez ID
-    entrez =  up[!duplicated(up$Genes), ] %>%
-      mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
-                             column = "ENTREZID", keytype = "SYMBOL", 
-                             multiVals = "first")) %>% 
-      filter(!is.na(entrez))
-    entrez_up = entrez[, "entrez", drop=T] %>% 
-      setNames(., entrez[, "Genes", drop=T])  
-  }
-  entrez_down = NULL
-  if (nrow(down)>0) {
-    #Convert gene symbol to Entrez ID
-    entrez =  down[!duplicated(down$Genes), ] %>%
-      mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
-                             column = "ENTREZID", keytype = "SYMBOL", 
-                             multiVals = "first")) %>% 
-      filter(!is.na(entrez))
-    entrez_down = entrez[, "entrez", drop=T]  %>% 
-      setNames(entrez[, "Genes", drop=T])
-  }
-  return(list(up=entrez_up, down=entrez_down, 
-              backgrounGeneList=universe))
-})
-
-OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
-if (file.exists(paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"))) {
-  file.remove(paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"))
+    up = filter(arrange(r, adj.P.Val), adj.P.Val<sig.level) %>%
+      filter(logFC>0)
+    down = filter(arrange(r, adj.P.Val), adj.P.Val<sig.level) %>%
+      filter(logFC<0)
+    entrez_up = NULL
+    if (nrow(up)>0) {
+      #Convert gene symbol to Entrez ID
+      entrez =  up[!duplicated(up$Genes), ] %>%
+        mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                               column = "ENTREZID", keytype = "SYMBOL", 
+                               multiVals = "first")) %>% 
+        filter(!is.na(entrez))
+      entrez_up = entrez[, "entrez", drop=T] %>% 
+        setNames(., entrez[, "Genes", drop=T])  
+    }
+    entrez_down = NULL
+    if (nrow(down)>0) {
+      #Convert gene symbol to Entrez ID
+      entrez =  down[!duplicated(down$Genes), ] %>%
+        mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                               column = "ENTREZID", keytype = "SYMBOL", 
+                               multiVals = "first")) %>% 
+        filter(!is.na(entrez))
+      entrez_down = entrez[, "entrez", drop=T]  %>% 
+        setNames(entrez[, "Genes", drop=T])
+    }
+    return(list(up=entrez_up, down=entrez_down, 
+                backgrounGeneList=universe))
+  }) 
+  return(entrez_list_sig)
 }
+
+entrez_list_sig = getEntrez(rslt.list, sig.level=0.2)
+OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
 ```
 
 ```{r}
 # library(clusterProfiler)
 print("KEGG GSEA analysis")
 # library(xlsx)
-kk.sig = lapply(names(entrez_list_sig), function(i) {
-  gl = entrez_list_sig[[i]]
-  #saveRDS(gl, paste0(OUTDIR_ORA, "gl.RDS"))
-  up = gl$up %>% as.character()
-  down = gl$down %>% as.character()
-  #universe = gl$backgrounGeneList
-  kk_up = NULL
-  if (length(up)>0) {
-    set.seed(1234)
-    kk_up = enrichKEGG(gene = up,
-                   organism = 'hsa',
-                   pvalueCutoff = 1,
-                   qvalueCutoff = 1,
-                   #universe = universe,
-                   use_internal_data = F)
-    print("Convert Entrez ID back to gene symbol")
-    source("../src/convertEntrez2Symbol.R")
-    kk_up@result$geneID_Symbol = 
-      convertEntrez2Symbol(kk_up@result$geneID, mapping_list=gl$up) %>%
-      as.character()
-    write.xlsx(as.data.frame(kk_up@result), 
-             paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"),
-             sheetName = paste0(i, "_up"),
-             col.names=TRUE, row.names=FALSE,
-             append=T)
-  }
+runkk = function(entrez_list_sig) {
+  kk.sig = lapply(names(entrez_list_sig), function(i) {
+    gl = entrez_list_sig[[i]]
+    #saveRDS(gl, paste0(OUTDIR_ORA, "gl.RDS"))
+    up = gl$up %>% as.character()
+    down = gl$down %>% as.character()
+    #universe = gl$backgrounGeneList
+    kk_up = NULL
+    if (length(up)>0) {
+      set.seed(1234)
+      kk_up = enrichKEGG(gene = up,
+                         organism = 'hsa',
+                         pvalueCutoff = 1,
+                         qvalueCutoff = 1,
+                         #universe = universe,
+                         use_internal_data = F)
+      print("Convert Entrez ID back to gene symbol")
+      source("../src/convertEntrez2Symbol.R")
+      kk_up@result$geneID_Symbol = 
+        convertEntrez2Symbol(kk_up@result$geneID, mapping_list=gl$up) %>%
+        as.character()
+      file = ifelse(length(entrez_list_sig)==1, 
+                    paste0(OUTDIR_ORA, "KEGG_ORA_all.xlsx"),
+                    paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"))
+      if (file.exists(file)) {
+        file.remove(file)}
+      write.xlsx(as.data.frame(kk_up@result), 
+                 file,
+                 sheetName = paste0(i, "_up"),
+                 col.names=TRUE, row.names=FALSE,
+                 append=T)
+    }
+    
+    kk_down = NULL
+    if (length(down)>0) {
+      set.seed(1234)
+      kk_down = enrichKEGG(gene = down,
+                           organism = 'hsa',
+                           pvalueCutoff = 1,
+                           qvalueCutoff = 1,
+                           #universe = universe,
+                           use_internal_data = F)
+      print("Convert Entrez ID back to gene symbol")
+      kk_down@result$geneID_Symbol = 
+        convertEntrez2Symbol(kk_down@result$geneID, mapping_list=gl$down) %>%
+        as.character()
+      write.xlsx(as.data.frame(kk_down@result), 
+                 file,
+                 sheetName = paste0(i, "_down"),
+                 col.names=TRUE, row.names=FALSE,
+                 append=T)
+    } 
+    return(list(up=kk_up, down=kk_down))
+  }) %>% setNames(names(entrez_list_sig)) 
+  return(kk.sig)
+}
 
-  kk_down = NULL
-  if (length(down)>0) {
-    set.seed(1234)
-    kk_down = enrichKEGG(gene = down,
-                   organism = 'hsa',
-                   pvalueCutoff = 1,
-                   qvalueCutoff = 1,
-                   #universe = universe,
-                   use_internal_data = F)
-    print("Convert Entrez ID back to gene symbol")
-    kk_down@result$geneID_Symbol = 
-      convertEntrez2Symbol(kk_down@result$geneID, mapping_list=gl$down) %>%
-      as.character()
-    write.xlsx(as.data.frame(kk_down@result), 
-             paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"),
-             sheetName = paste0(i, "_down"),
-             col.names=TRUE, row.names=FALSE,
-             append=T)
-  } 
-  return(list(up=kk_up, down=kk_down))
-}) %>% setNames(names(entrez_list_sig))
+kk.sig = runkk(entrez_list_sig)
 
 saveRDS(kk.sig, paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
 # kk.sig = readRDS(paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
@@ -1129,7 +1196,7 @@ saveRDS(kk.sig, paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
 
 ```{r}
 source("../src/makeDotplot.R")
-p1 = makeDotplot_ORA_KEGG(kk.sig, index.list=1:2, 
+p1 = makeDotplot_ORA_KEGG(rslt=kk.sig, index.list=1:2, 
                        qval.thresh=0.1)
 pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.1.pdf"), h=16.5, w=10)
 p1
@@ -1276,7 +1343,6 @@ entrez_list = lapply(rslt.list, function(r) {
   setNames(entrez$ranking_statistic, entrez$entrez)
 })
 
-
 print("Show the genes in the upregulated pathways for PELLET:")
 lapply(kk.sig$PELLET$up@result %>% 
          filter(qvalue < 0.1) %>% 
@@ -1300,7 +1366,7 @@ print("Show the genes in the downregulated pathways for PELLET:")
 lapply(kk.sig$PELLET$down@result %>% 
          filter(qvalue < 0.1) %>% 
          .[, "ID"], function(pathway) {
-  print(pathway)
+  #print(pathway)
   node.sum = "sum"
   dir.create(paste0(OUTDIR_ORA, "/Pellet"), showWarnings = F)
   h = try(pathview(gene.data=entrez_list$PELLET, 
@@ -1376,6 +1442,78 @@ print("/11224/6139/23521/6141/6143/6154/6165/9349")
 ::: callout-note
 In native KEGG view, a gene node may represent multiple genes/proteins with similar or redundant functional role. The number of member genes range from 1 up to several tens. They are intentionally put together as a single node on pathway graphs for better clarity and readability. Therefore, we do not split node and mark each member genes separately by default. But rather we visualize the node-wise data by summarize gene-wise data, users may specify the summarization method using node.sum arguement. Poential options include "sum","mean", "median", "max", "max.abs" and "random". Default node.sum="sum". Here, we used default "sum".
 :::
+
+# Pathway analysis on all three compartments together
+
+```{r}
+entrez_list_sig2 = getEntrez(rslt.list, sig.level=0.2)
+UP = c()
+DOWN = c()
+for (i in entrez_list_sig2) {
+  UP = c(UP, i$up) %>% .[unique(names(.))]
+  DOWN = c(DOWN, i$down) %>% .[unique(names(.))]
+}
+
+entrez_list_sig_all = list(all=list(up=UP, down=DOWN))
+kk.sig_all = runkk(entrez_list_sig_all)
+
+source("../src/makeDotplot.R")
+p1 = makeDotplot_ORA_KEGG(rslt=kk.sig_all, index.list=1, 
+                       qval.thresh=0.1)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.1_all.pdf"), h=9, w=8)
+p1
+dev.off()
+
+p1 = makeDotplot_ORA_KEGG(kk.sig_all, index.list=1, 
+                       qval.thresh=0.05)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.05_all.pdf"), h=6, w=8)
+p1
+dev.off()
+```
+
+**As you can see that, when combining the significant up and down regulated differential proteins from all three compartments, the pathways got are not as relevant as that of DIABLO, which is probably because this strategy does not account for interactions between different datasets, and is very probably biased toward certain dataset/s.**
+
+# Drug target analysis
+
+```{r}
+dir.create(paste0(OUTDIR_ORA, "/DrugTargets/"), recursive = T, showWarnings = F)
+library(enrichR)
+listEnrichrSites()
+
+# Select drug related databases:
+dbs <- c("LINCS_L1000_Chem_Pert_Consensus_Sigs", 
+         "Proteomics_Drug_Atlas_2023", "DSigDB", 
+         "MAGMA_Drugs_and_Diseases", "IDG_Drug_Targets_2022")
+# EnrichR analysis for all up/down regulated genes in alcoholism
+pdf(paste0(OUTDIR_ORA, "/DrugTargets/EnrichR_top_drug_sets.pdf"))
+lapply(c("up", "down"), function(i) {
+  enriched <- invisible(enrichr(names(entrez_list_sig_all[[1]][[i]]), dbs))
+  for (d in dbs) {
+    if (nrow(enriched[[d]])>0) {
+      #options(java.parameters = "-Xmx1000m")
+      # Plot
+      print(plotEnrich(enriched[[d]], showTerms = 20, numChar = 40, 
+                 y = "Count", orderBy = "P.value", 
+                 title=paste0(d, "_", i)))
+      # Save the result tables
+      write.xlsx(enriched[[d]], 
+                 paste0(OUTDIR_ORA, "/DrugTargets/EnrichR_", i, "_", d,".xlsx"),
+                 #sheetName = d,
+                 col.names=TRUE, row.names=FALSE,
+                 append=F)
+    }
+  }  
+})
+invisible(dev.off())
+```
+
+**I would rather use the Target analysis results from the DIABLO, rather than from here**
+
+```{r}
+sink(paste0(OUTDIR_ORA, "/seesionInfo.txt"))
+print(sessionInfo())
+sink()
+```
 
 # Deliverables
 

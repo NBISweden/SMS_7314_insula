@@ -1,0 +1,903 @@
+---
+title: "Subcellular proteomic analysis of the insula in alcohol dependence"
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  bookdown::html_document2:
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: false
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+params:
+  dataset: 1
+---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+
+```
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
+
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+
+**Aim for this particular notebook**: Here, we will use DIABLO to select the most confident markers for separating alcoholism from control. DIABLO will fit a supervised regression model that uses the predictor dataset Xi (i.e. CYTOSOLIC, PELLET, SYNAPTOSOMAL) to predict the response dataset Y (alcoholism & control in our case). In details, it will construct a set of latent components for each predictor dataset Xi, where the components are linear combination of the most important features for maximizing the covariance between the predictor datasets Xi and the response dataset Y, i.e. the categories of Y can be best separated if Y is categorical. As you can see, this method is a good marker identification method.
+
+DIABLO, stands for Data Integration Analysis for Biomarker discovery using Latent cOmponents, it is a mult-omics method that simultaneously identifies key omics variables during the integration process and discriminates phenotypic groups. DIABLO maximizes the common or correlated information between mulitple datasets, i.e. it also accounts for interactions (reflected by the design matrix strengths) between different datasets.
+
+
+# Import the data and preparation
+
+```{r}
+suppressPackageStartupMessages({
+  library(mixOmics) # import the mixOmics library
+  library(dplyr)
+  library(tidyverse)
+  library(ggplot2)
+  library(xlsx)
+  library(igraph)
+  library(cowplot)
+  library(purrr)
+})
+set.seed(123) # for reproducibility, remove for normal use
+```
+
+```{r}
+OUTDIR = "../results/rerun/Integration/DIABLO/"
+dir.create(OUTDIR, recursive = T, showWarnings = F)
+```
+
+```{r}
+# Import indepdent variable Y
+meta = read.table("../data/design_7314/design_CYTOSOLIC.tsv", header=T) %>%
+  filter(., sample!="133C_G2") # "133C_G2" was removed as an outlier in CYTOSOLIC.
+  #mutate(sample=substr(sample, 1,4))
+#head(meta)
+Y = meta$Condition %>% factor(., levels=c("control", "case"))
+
+# Import normalized intensity tables for all cellular compartments together
+normData = 
+  readRDS("../results/rerun/QC/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS")
+data.list = lapply(normData, function(n) {
+  X = n %>% dplyr::select(-c(Genes, Gene_names)) %>%
+    as.data.frame()
+  rownames(X) = NULL
+  X = X %>% column_to_rownames(var="Protein_IDs") %>% t()
+  # rownames(X) = substr(rownames(X), 1,4)
+  ordered = setdiff(meta$sample, "133C_G2") 
+  # All the compartments should have the same samples
+  # remove proteins with NA as well
+  X = X[ordered, ] %>% t() %>% na.omit() %>% t() #DIABLO can't handle missing values
+})
+# In each dataset: samples x proteins:
+```
+
+Here, we will skip centering etc because DIABLO is going to do that for us.
+
+# Modelling
+
+## Build a function for hyperparameter tuning
+
+```{r}
+tuneParameter = function(data.list, Y, folds, nrepeat, strength, test.keepX, OUTDIR) {
+  OUTDIR_tune = paste0(OUTDIR, "/ParameterTuning/strength_",strength, "/")
+  dir.create(OUTDIR_tune, recursive = T, showWarnings = F)
+  
+  ## Set up design matrix:
+  #Sort out design matrix. Design can be thought of as a grid where each cell's value, ranging from 0 to 1, indicates the strength of the relationship between two corresponding data blocks. A value of 0 means no relationship between datasets, with this setting, DIABLO only selects discriminatory but non-correlated variables, NOT discriminatory and correlated variables. While 1 signifies a strong connection between datasets, with this setting, DIABLO will only selected highly correlated and discriminatory variables across all datasets, not discriminatory but non-correlated variables. With a strength between 0-1 DIABLO can select both discriminatory but non-correlated variables, correlated and discriminatory variables. When you are setting up your analysis, adjusting these values can help you emphasize or de-emphasize certain relationships, giving you the flexibility to focus on specific interactiosn that are of interest. Choosing a very high value (\>0.5) will have negative impact on the prediction ability of the model. Choosing a very low value on the other hand will cause discarding the relationship between the data blocks. Here, we will do sensitivity test on values 0.1, 0.2, 0.3, 0.4, 0.5.
+  # For square matrix filled with strength
+  design = matrix(strength, ncol=length(data.list), nrow=length(data.list),
+                  dimnames = list(names(data.list), names(data.list)))
+  diag(design) = 0 # set diagonal to 0s
+  
+  ## Construct the original model
+  diablo.model = block.splsda(X=data.list, Y=Y, ncomp=10, design=design)
+  
+  ## Tuning number of components
+  #Model evaluation: sysmatically check how good our model's performance is before interpreting it. Overfitting: when a model is too complex, it captures only the target pattern but also noise in the training dataset, making perfect performance on that specific training dataset, but less effective in generalizing to new unseen data. Cross validation: one way to avoid overfitting. In techniques like k-fold cross-validation, the training dataset is divided into k subsets, the model is trained k times, each time using a different subset as a validation set and the rest k-1 subsets as the training set. In each round, the model is trained on the training set and evalutated on the validation set. This k-fold cross-validation process is repeated several times, with different partitions, to obtain a more generalized model performance metric. This rigorous evaluation process helps assessing a model's ability to generalize, ensuring that it performs well not only on the training data but also on unseen new data as well.
+  # K fold validation
+  set.seed(123)
+  perf.diablo = perf(diablo.model, validation="Mfold",
+                     folds=folds, nrepeat =nrepeat)
+  pdf(paste0(OUTDIR_tune, "/Tune_component_number_pre.pdf"), h=5, w=6)
+  par(mfrow=c(1, 1))
+  plot(perf.diablo)
+  invisible(dev.off())
+  #In the plot above, the colors represent which distance measure has been used to assign groups to the test data. In practice, these distance should do very similar job, here we will focus on the centroids distance. The type of line (solid and dashed) shows error rate (ER) and balanced error rate (BER), respectively. ER: proporiton of incorrect predictions made by the model over the total number of predictions BER: the average error rates across all classes, ensuring that each class contributes equally to the overall error rate, even if the classes are imbalanced in size. X-axis: PCA components
+  ncomps = perf.diablo$choice.ncomp$MajorityVote["Overall.BER", "centroids.dist"]
+  
+  
+  ## Tuning variable selection
+  #run the feature selection tuning
+  set.seed(123)
+  tune.alc = tune.block.splsda(data.list, Y=Y, ncom=ncomps,
+                               test.keepX = test.keepX, design=design,
+                               validation="Mfold", folds=folds, nrepeat=nrepeat,
+                               dist = "centroids.dist")
+  
+  saveRDS(tune.alc, paste0(OUTDIR_tune, "/tune.alc.RDS"))
+  #Set the optimized DIABLO model
+  set.seed(123)
+  final.diablo.model_pre = block.splsda(data.list, Y=Y, ncomp=ncomps, 
+                                        keepX=tune.alc$choice.keepX, 
+                                        design=design)
+  
+  
+  
+  ## Plotting
+  #We can plot the samples in the PLS space
+  pdf(paste0(OUTDIR_tune, "/plotIndiv.pdf"), h=7, w=8)
+  plotIndiv(final.diablo.model_pre, ind.names=F, legend=T)
+  invisible(dev.off())
+  #We can see that in the PLS space, control and case are well separated mainly by variate 1, suggesting that our selected variables hold significant discriminatory power. This is in contrast to the PCA spaces based on DEGs as we observed at `results/rerun/QC/*_PCA_plot_onDEGs.pdf`, where the two conditions are still hidden by unwanted variation and hard to separate for SYNAPTOSOMAL. We have controlled for some major unwanted variation during Differential analysis, which was not shown on the PCA plot, and there may be more to control for. I guess DIABLO managed to get rid of those unwanted variation while looking for variates (components) that can best separate the two conditions.
+  
+  
+  
+  ## Performance of the model
+  #We assess the performance of the model using 4-fold cross-validation repeated 10 times, using the function perf(). The method runs a block.splsda() model on the pre-specified arguments input from the final.diablo.model object, but on cross-validated samples. We then assess the accuracy of the prediction on the left-out samples.
+  #In addition to the usual (balanced) classification error rate, predicted dummy variables and variations, as well as the stability of the selected features, the perf() function for DIABLO outputs the performance based on Majority Vote (each data set votes for a class for a particular test sample) or a weighted vote, where the weight is defined according to the correlation between the latent component associated to a particular dataset and the outcome.
+  # run repeated CV performance evaluation
+  set.seed(123)
+  perf.diablo = perf(final.diablo.model_pre, validation = 'Mfold',
+                     M = folds, nrepeat = nrepeat,
+                     dist = 'centroids.dist')
+  sink(paste0(OUTDIR_tune, "Final overall.BER.txt"))
+  print("From Majority vote:")
+    print(perf.diablo$MajorityVote.error.rate$centroids.dist["Overall.BER", ])
+  sink()
+  #An AUC plot per block can also be obtained using the function auroc(). The interpretation of this output may not be particularly insightfull in relation to the performance evaluation of our methods, but can complement the statistical analysis
+  pdf(paste0(OUTDIR_tune, "Auroc.pdf"), h=4, w=6)
+  datasets = names(data.list)
+  invisible(map(datasets, ~auroc(final.diablo.model_pre, roc.block=.x,
+                                 roc.comp = 1, print=FALSE)))
+  invisible(dev.off())
+  
+  return(list(final.model=final.diablo.model_pre, perf.diablo=perf.diablo, tune.alc=tune.alc))
+}
+
+```
+
+## Select the best design matrix strength
+
+```{r}
+if (file.exists(paste0(OUTDIR, "/ParameterTuning/TuningResults.RDS"))) {
+  tuneRslt = readRDS(paste0(OUTDIR, "/ParameterTuning/TuningResults.RDS"))
+} else {
+  folds = 4 # K in K-fold cross validation
+  nrepeat = 10 # How many K-fold cross validation to repeat!
+  #set grid of values for each component to test
+  test.keepX = list(CYTOSOLIC = seq(5, 50, 5),
+                    PELLET = seq(10, 50, 10),
+                    SYNAPTOSOMAL = seq(1, 20, 2))
+  
+  strengths = seq(0.1, 0.5, 0.1)
+  tuneRslt = lapply(strengths, function(strength) {
+    tuneParameter(data.list=data.list, Y=Y, folds=folds, 
+                  nrepeat=nrepeat, strength=strength, 
+                  test.keepX=test.keepX, OUTDIR=OUTDIR)
+  }) %>% setNames(paste0("Strength_", strengths))
+  
+  saveRDS(tuneRslt, paste0(OUTDIR, "/ParameterTuning/TuningResults.RDS"))  
+}
+```
+
+
+```{r}
+ncomps = data.frame(ID = names(tuneRslt),
+         ncomp = tuneRslt %>% purrr::map(~ .x$final.model$ncomp[1]) %>%
+           unlist())
+# library(ggplot2)
+# p = ggplot(ncomps, aes(x=ID, y=ncomp, group=1)) +
+#   geom_line(color="pink") +
+#   geom_point() +
+#   theme_bw()
+# pdf(paste0(OUTDIR, "/ncomps.pdf"))
+# print(p)
+# dev.off()
+# p
+# rm(p)
+```
+
+
+```{r}
+#| fig-cap: "City and highway mileage for 38 popular models of cars."
+error.rates = data.frame(ID = names(tuneRslt),
+  comp1 = purrr::map(tuneRslt, 
+      ~.x$perf.diablo$MajorityVote.error.rate$centroids.dist["Overall.BER", 1]) %>%
+      unlist(),
+  comp2 = purrr::map(tuneRslt, 
+      ~.x$perf.diablo$MajorityVote.error.rate$centroids.dist["Overall.BER", 2]) %>%
+      unlist()) %>%
+  pivot_longer(!ID, names_to="comps", values_to="MajorityVote.error.rates")
+
+#library(ggplot2)
+p = ggplot(error.rates, aes(x=ID, y=MajorityVote.error.rates, color=comps, group=comps)) +
+  geom_line() +
+  geom_point() +
+  theme_bw()
+pdf(paste0(OUTDIR, "/MajorityVote.error.rates.pdf"))
+print(p)
+invisible(dev.off())
+p
+
+# From the plot, we can see that Design matrix stength 0.1 has the lowest Overall BER error rate, we will choose this one
+final.diablo.model = tuneRslt$Strength_0.1$final.model
+rm(p)
+```
+
+## Save the model
+
+```{r}
+saveRDS(final.diablo.model, paste0(OUTDIR, "final.diablo.model.RDS"))
+```
+
+
+# Plotting for final model
+
+```{r}
+#We can plot the samples in the PLS space
+p = invisible(plotIndiv(final.diablo.model, ind.names=F, legend=T))
+#We can see that in the PLS space (formed by the two identified latent variables/components), control and case are well separated mainly by variate 1, suggesting that our selected variables hold significant discriminatory power. This is in contrast to the PCA spaces based on DEGs as we observed at `results/rerun/QC/*_PCA_plot_onDEGs.pdf`, where the two conditions are still hidden by unwanted variation and hard to separate for SYNAPTOSOMAL. We have controlled for some major unwanted variation during Differential analysis, which was not shown on the PCA plot, and there may be more to control for. I guess DIABLO managed to get rid of those unwanted variation while looking for variates (components) that can best separate the two conditions.
+
+pdf(paste0(OUTDIR, "/SampleDistributionOnPLSspace.pdf"), h=6, w=8)
+  invisible(print(p))
+invisible(dev.off())
+
+rm(p)
+```
+
+```{r, fig.width=8, fig.height=6}
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+design.table.list = lapply(compartments, function(i) {
+  read_table(paste0("../data/design_7314/design_", i, ".tsv"))
+}) %>% setNames(compartments)
+DIABLOcovariatePlot = function(compartments) {
+  for (i in compartments) {
+    d = design.table.list[[i]]
+    m = final.diablo.model$variates[[i]] %>%
+      as.data.frame() %>% 
+      rownames_to_column(var="sample") %>%
+      left_join(d)
+    for (c in c("RIN", "pH", "Age")) {
+      p=ggplot(m, aes(x=comp1, y=comp2)) +
+        geom_point(aes_string(col=c, shape="Condition"))
+      assign(c, p)
+    }
+    
+    plot = cowplot::plot_grid(RIN, pH, Age, ncol=2)
+
+    # now add the title
+    title <- ggdraw() + 
+      draw_label(
+        i,
+        fontface = 'bold',
+        x = 0,
+        hjust = 0
+      ) +
+      theme(
+        # add margin on the left of the drawing canvas,
+        # so title is aligned with left edge of first plot
+        plot.margin = margin(0, 0, 0, 7)
+      )
+    p2 = plot_grid(
+      title, plot,
+      ncol = 1,
+      # rel_heights values control vertical title margins
+      rel_heights = c(0.1, 1)
+    )
+    print(p2)
+  }  
+}
+
+pdf(paste0(OUTDIR, "/CovariatesInPLSspace.pdf"), h=6, w=8)
+DIABLOcovariatePlot(compartments)
+dev.off()
+DIABLOcovariatePlot(compartments)
+```
+
+
+```{r}
+p = plotArrow(final.diablo.model, ind.names = FALSE, legend = TRUE,
+          title = 'DIABLO')
+#In the arrow plot, the start of the arrow indicates the centroid between all data sets (each for CYTOSOLIC, PELLET and SYNAPTOSOMAL) for a given sample and the tips of the arrows indicate the location of that sample in each block. Such graphics highlight the agreement between all data sets at the sample level. While somewhat difficult to interpret, even qualitatively
+
+pdf(paste0(OUTDIR, "/ArrowPlot.pdf"), h=4, w=5)
+  print(p)
+invisible(dev.off())
+
+p
+rm(p)
+```
+
+```{r}
+invisible(purrr::map(1:ncomps[1,2], ~plotDiablo(final.diablo.model, ncomp = .x)))
+
+pdf(paste0(OUTDIR, "/ComponentCorrelationPlotBetweenDatasets.pdf"), h=5, w=7)
+  invisible(purrr::map(1:ncomps[1,2], ~plotDiablo(final.diablo.model, ncomp = .x)))
+invisible(dev.off())
+
+```
+
+This plot is a diagnostic plot to check whether the correlation between components from each data set has been maximised as specified in the design matrix. The first plot is for component 1, while the second plot is for component 2.
+ 
+
+```{r}
+dir.create(paste0(OUTDIR, "/selectedProteins/"), recursive=T, showWarnings = F)
+
+library(readxl)
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+rslt.list = lapply(compartments, function(i) {
+  read_excel(
+    paste0("../results/rerun/DifferentialAnalysis/Differential_Table_",i,".xlsx"), 
+    sheet=1, col_names=TRUE, na="", skip=0)
+}) %>% setNames(compartments)
+all = Reduce(full_join, rslt.list) %>% .[!duplicated(.["Protein_IDs"]), ]
+index = setNames(all$Genes, all$Protein_IDs) 
+
+
+# library(xlsx)
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+comps = c(1,2)
+selected_features = lapply(comps, function(x) {
+  lapply(compartments, function(y) {
+    table = selectVar(final.diablo.model, block=y, comp=x)
+    table[[1]]$value$Genes = index[table[[1]]$name]
+    table
+  })
+})
+
+if (file.exists(paste0(OUTDIR, "/selectedProteins/SelectedFeatures_weights.xlsx"))) {
+  file.remove(paste0(OUTDIR, "/selectedProteins/SelectedFeatures_weights.xlsx"))
+}
+
+invisible(lapply(seq_along(selected_features), function(comp) {
+  lapply(seq_along(selected_features[[comp]]), function(compartment) {
+    write.xlsx(selected_features[[comp]][[compartment]][[1]]$value %>%
+                 rownames_to_column(var="Protein_Ids"), 
+             paste0(OUTDIR, "/selectedProteins/SelectedFeatures_weights.xlsx"),
+             sheetName = paste0("Comp", comps[comp], "_", 
+                                compartments[compartment]),
+             col.names=TRUE, row.names=FALSE,
+             append=T)
+  })}))
+
+```
+
+
+
+```{r}
+#The Correlation structure between variables can be shown with the correlation circle plot, as depicted in Figure here. The selected variables from all three compartments seem to separate along the both dimension. From this, the correlation of each selected feature from all three datasets can be evaluated based on their proximity
+plotVar(final.diablo.model, var.names = FALSE,
+        style = 'graphics', legend = TRUE,
+        pch = c(16, 17, 15), cex = c(2,2,2),
+        col = c('darkorchid', 'brown1', 'lightgreen'))
+
+pdf(paste0(OUTDIR, "/CorrelationCirclePlot.pdf"), h=5, w=7)
+  plotVar(final.diablo.model, var.names = FALSE,
+        style = 'graphics', legend = TRUE,
+        pch = c(16, 17, 15), cex = c(2,2,2),
+        col = c('darkorchid', 'brown1', 'lightgreen'))
+invisible(dev.off())
+
+```
+
+```{r,  fig.height=7, fig.width=7}
+#| fig-cap: "circosPlot showing the correlations between variables of different datasets."
+par(mar = c(0.5, 0.5, 0.5, 0.5))
+# par(mar = c(bottom, left, top, right))
+invisible(lapply(1:2, function(i) {circosPlot(final.diablo.model, cutoff = 0.7, line = TRUE, comp=i,
+           color.blocks= c('darkorchid', 'brown1', 'lightgreen'),
+           color.cor = c("chocolate3","grey20"), size.labels = 1.5) }))
+
+pdf(paste0(OUTDIR, "/circosPlot.pdf"), h=7, w=7)
+  invisible(lapply(1:2, function(i) {circosPlot(final.diablo.model, cutoff = 0.7, line = TRUE, comp=i,
+           color.blocks= c('darkorchid', 'brown1', 'lightgreen'),
+           color.cor = c("chocolate3","grey20"), size.labels = 1.5) }))
+invisible(dev.off())
+```
+
+The circos plot is exclusive to integrative frameworks and represents the correlations between variables of different types, represented on the side quadrants. From the Figure above, it seems the variables from all three compartments are mixed with both positive and negative correlations. Note that these correlations are above a value of 0.7 (cutoff = 0.7). All the interpretations made above are only relevant for features with very strong correlations.
+
+```{r, fig.height=10, fig.width=10}
+par(mfrow=c(1,1))
+set.seed(123)
+# library(igraph)
+my.network = network(final.diablo.model, blocks = c(1,2,3),
+        color.node = c('darkorchid', 'brown1', 'lightgreen'), cutoff = 0.4)
+write.graph(my.network$gR, file = paste0(OUTDIR, "myNetwork.gml"), format = "gml")
+```
+
+```{r, fig.height=10, fig.width=10}
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+comps = c(1,2)
+
+pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureLoadingPlot.pdf"), h=6, w=6)
+lapply(comps, function(comp) {
+  for (cell in compartments) {
+    loadings = 
+      final.diablo.model$loadings[[cell]][,comp][abs(final.diablo.model$loadings[[cell]][,comp])>0]
+    sorted_loadings = loadings[order(abs(loadings), decreasing=T)]
+    colors = ifelse(sorted_loadings>0, "blue", "orange")
+    sorted_loadings2 = data.frame(Protein=names(sorted_loadings),
+                                  Loading = as.numeric(sorted_loadings))
+    colnames(sorted_loadings2) = c("Protein", paste0("Loading_comp", comp))
+    sorted_loadings2$Protein = 
+      factor(sorted_loadings2$Protein, levels=sorted_loadings2$Protein)
+    par(mar = c(2, 5, 1, 0.5))
+    p = sorted_loadings2  %>%
+      ggplot(., aes_string(x="Protein", y= paste0("Loading_comp", comp))) +
+      geom_bar(stat="identity", fill=colors) +
+      coord_flip() + 
+      theme_bw() + theme(
+        axis.ticks=element_blank(),
+        panel.background=element_rect(fill="white"),
+        panel.grid.minor=element_blank(),
+        panel.grid.major.x=element_blank(),
+        panel.grid.major.y=element_line(size=0.3, color="white"),
+        panel.border=element_blank())
+    # p = sorted_loadings  %>%
+    #   barplot(., horiz=TRUE, las=1, main="PCA Loadings", xlab="Loadings", border=FALSE,col = colors)    
+    assign(paste0("comp", comp, "_", cell), p)
+  }
+  if (comp==1) {
+    cowplot::ggdraw() +
+      draw_plot(comp1_CYTOSOLIC, x = 0, y = 0, width = 0.5, height = 1) +
+      draw_plot(comp1_PELLET, x = 0.5, y = 0.45, width = 0.5, height = 0.55) + 
+      draw_plot(comp1_SYNAPTOSOMAL, x = 0.5, y = 0, width = 0.5, height = 0.15) + 
+      draw_plot_label(label = c(compartments), size = 12, x = c(0.28,0.72,0.6), 
+                      y = c(1, 1,0.2))    
+  } else {
+    cowplot::ggdraw() +
+      draw_plot(comp2_CYTOSOLIC, x = 0, y = 0, width = 0.5, height = 1) +
+      draw_plot(comp2_PELLET, x = 0.5, y = 0.65, width = 0.5, height = 0.35) + 
+      draw_plot(comp2_SYNAPTOSOMAL, x = 0.5, y = 0, width = 0.5, height = 0.35) + 
+      draw_plot_label(label = compartments, size = 12, 
+                      x = c(0.25,0.8,0.6), y = c(1,1,0.4))       
+  }
+})
+invisible(dev.off())
+
+```
+
+The function plotLoadings() visualises the loading weights of each selected variable on each component and each data set (Figure above). The colour indicates the class in which the variable has the maximum level of expression (contrib = 'max') using the median (method = 'median'). Figure above depicts the loading values for the two dimensions. The bar color stands for the condition (case/control) that has the maximum average abundance (mean in method) across all the groups. The bar length: the contribution of each protein to one PC, the longer the bar, the most important it is Bars extending to the right represent proteins that are positively correlated with one PC, indicating that the cells with higher PC scores tend to have higher abundance of this protein. Conversely, bars extending to the left stands for proteins that are negatively correlated with one PC, meaning as the abundance of these proteins increase in a cell, the PC score of this cell will decrease.
+
+```{r, fig.height=8, fig.width=15}
+source("../src/cimDiablo.R")
+library(readxl)
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+all = lapply(compartments, function(i) {
+  read_excel(
+    paste0("../results/rerun/DifferentialAnalysis/Differential_Table_",i,".xlsx"), 
+                  sheet=1, col_names=TRUE, na="", skip=0)
+}) %>% setNames(compartments) %>% Reduce(full_join, .)
+comps = c(1,2)
+
+drawHeatmap = function(comps) {
+    invisible(lapply(comps, function(i) {
+    proteins = lapply(compartments, function(j) {
+    final.diablo.model$loadings[[j]] %>% 
+        as.data.frame() %>% 
+        .[.[, paste0("comp",i)]!=0,] %>% 
+        rownames()
+    }) %>% unlist() %>% as.character()
+    
+    comp_pg = all %>% 
+      filter(Protein_IDs %in% proteins) %>% 
+      .[!duplicated(.[, "Protein_IDs"]),] %>%
+      mutate(combined_name = 
+               paste0(Protein_IDs, "(", Genes, ")")) %>%
+      column_to_rownames(var="Protein_IDs") %>%
+      .[proteins,]
+    cimDiablo(final.diablo.model, comp=i, 
+          #color.Y = c("red", "blue")
+          margins=c(10,24), legend.position="topright",
+          col.names=comp_pg$combined_name,
+          title=paste0("Component", i))
+  }))
+}
+pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureHeatmapPlot.pdf"), h=7, w=17)
+  drawHeatmap(comps)
+invisible(dev.off())
+
+drawHeatmap(comps)
+```
+
+Heatmap showing the protein abundance of the selected proteins/Features from each dataset that are differentially abundant between alcoholism from control 
+
+
+```{r, fig.height=3, fig.width=12}
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+comps = c(1,2)
+for (c in compartments) {
+  print(c)
+  Group = data.frame(Group=final.diablo.model$Y)
+  rownames(Group) = rownames(final.diablo.model$variates[[c]])
+  p = final.diablo.model$variates[[c]] %>% 
+    as.data.frame() %>%
+    merge(Group, by=0) %>%
+    gather(key="Component", value="Score", -c(Group, Row.names)) %>%
+    ggplot(., aes(x=Component, y=Score)) +
+    geom_violin(trim=FALSE, aes(fill=Group)) +
+    ggtitle(c) +
+    theme_bw() +theme(
+      panel.background=element_rect(fill="white"),
+      panel.grid.minor=element_blank(),
+      panel.grid.major.x=element_blank(),
+      panel.grid.major.y=element_line(size=0.3, color="white")) 
+  
+  assign(c, p)
+}
+
+plot_grid(CYTOSOLIC, PELLET, SYNAPTOSOMAL, ncol=3)
+  
+pdf(paste0(OUTDIR, "/selectedProteins/ViolinPlot_CompVScondition.pdf"), h=3, w=12)
+plot_grid(CYTOSOLIC, PELLET, SYNAPTOSOMAL, ncol=3)
+invisible(dev.off())
+
+```
+
+**From the violin plot, we can see it is mainly the first component/latent variable that is associated the conditions (control vs case), so we will only focus on the selected features for Component 1.**
+
+## Plot selected features (comp1)
+
+```{r}
+plotProteins = function(mat, design_matrix, selected) {
+  nCounts = mat %>% as.data.frame() %>%
+    gather(-c(Protein_IDs,Genes, Gene_names), 
+           key="sample", value="NormalizedAbundance") %>% 
+    filter(Protein_IDs %in% selected) %>% full_join(design_matrix) 
+  
+  library(plyr)
+  df = ddply(nCounts, .(Batch, Condition, Protein_IDs), summarize,
+             mean = round(mean(NormalizedAbundance), 2),
+             sd = round(sd(NormalizedAbundance), 2)) #%>%
+    #rename(.,c("NormalizedAbundance" = "mean"))
+  #head(df)
+  df$NormalizedAbundance = exp(df$mean)
+  df$Protein_IDs = factor(df$Protein_IDs,
+                          levels=unique(nCounts$Protein_IDs))
+                        
+  n = length(unique(nCounts$Protein_IDs))
+  theme_set(theme_bw())
+  p = ggplot(df, aes(fill=Condition, y=NormalizedAbundance, x=Batch)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    labs(y = "Normalized abundance") +
+    #scale_y_log10() +
+    facet_wrap(~Protein_IDs, nrow=ceiling(n/16),
+               ncol=ifelse(n>=16, 16, n),
+               scale="free") +
+    theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1))  +
+    geom_errorbar(aes(ymin=NormalizedAbundance-sd, 
+                      ymax=NormalizedAbundance+sd), 
+                  width=.2,
+                  position=position_dodge(.9))+
+    ggtitle(paste0("Significant proteins")) 
+  return(list(plot=p, sig.Prot.nr=n))
+}
+
+rslt.list = 
+  readRDS("../results/rerun/QC/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS")
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+design.table.list = lapply(compartments, function(i) {
+  read_table(paste0("../data/design_7314/design_", i, ".tsv"))
+}) %>% setNames(compartments)
+
+lapply(names(rslt.list), function(i) {
+  selected = final.diablo.model$loadings[[i]][, "comp1"] %>%
+      .[abs(.)>0] %>% names()
+  mat = rslt.list[[i]]
+  design_matrix = design.table.list[[i]]
+  plotsigProt = plotProteins(mat, design_matrix, selected=selected)
+  n = plotsigProt$sig.Prot.nr
+  h=ceiling(n/16)*1.5+1
+  w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
+  pdf(paste0(OUTDIR, "/selectedProteins/selectedProteins_", i, "_comp1.pdf"), h=h, w=w)
+  print(plotsigProt$plot)
+  invisible(dev.off())
+  #print(plotsigProt$plot)
+})
+```
+
+
+## Selected feature VS differential proteins (comp1): upset plot
+
+```{r}
+library(readxl)
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+rslt.list = lapply(compartments, function(i) {
+  read_excel(
+    paste0("../results/rerun/DifferentialAnalysis/Differential_Table_",i,".xlsx"), 
+                  sheet=1, col_names=TRUE, na="", skip=0)
+}) %>% setNames(compartments)
+library(ComplexHeatmap)
+makeUpset = function(log2FoldChange_thresh, padj_thresh) {
+  protein.list = lapply(names(rslt.list), function(i) {
+    up = as.data.frame(rslt.list[[i]]) %>% 
+      filter(logFC>log2FoldChange_thresh&adj.P.Val<padj_thresh)
+    down = as.data.frame(rslt.list[[i]]) %>% 
+      filter(logFC<log2FoldChange_thresh&adj.P.Val<padj_thresh)
+    list(up$Protein_IDs, down$Protein_IDs)
+  })  %>% setNames(names(rslt.list))
+  
+  compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+  Diablo.features = lapply(compartments, function(i) {
+    up = final.diablo.model$loadings[[i]][, "comp1"] %>%
+      .[.<0] %>% names()
+    down = final.diablo.model$loadings[[i]][, "comp1"] %>%
+      .[.>0] %>% names()
+    list(up, down)
+  })
+  
+  protein.list_UP = c(protein.list[[1]][1], protein.list[[2]][1], 
+                      protein.list[[3]][1], Diablo.features[[1]][1],
+                      Diablo.features[[2]][1],
+                      Diablo.features[[3]][1]) %>% 
+    setNames(c(paste0(names(protein.list)[1], "_UP_sig"), 
+               paste0(names(protein.list)[2], "_UP_sig"), 
+               paste0(names(protein.list)[3], "_UP_sig"),
+               paste0(names(protein.list)[1], "_UP_Dib"), 
+               paste0(names(protein.list)[2], "_UP_Dib"), 
+               paste0(names(protein.list)[3], "_UP_Dib")))
+  protein.list_DOWN = c(protein.list[[1]][2], protein.list[[2]][2], 
+                        protein.list[[3]][2], Diablo.features[[1]][2],
+                      Diablo.features[[2]][2],
+                      Diablo.features[[3]][2]) %>% 
+    setNames(c(paste0(names(protein.list)[1], "_DOWN_sig"), 
+               paste0(names(protein.list)[2], "_DOWN_sig"), 
+               paste0(names(protein.list)[3], "_DOWN_sig"),
+               paste0(names(protein.list)[1], "_DOWN_Dib"), 
+               paste0(names(protein.list)[2], "_DOWN_Dib"), 
+               paste0(names(protein.list)[3], "_DOWN_Dib")))
+  
+  # library(ComplexHeatmap)
+  pdf(paste0(OUTDIR, "/selectedProteins/Sig.Diff._Diablo_proteins_upset_comp1.pdf"), h=4, w=7)
+  m = make_comb_mat(c(protein.list_UP, protein.list_DOWN))
+  print(UpSet(m,
+        top_annotation = upset_top_annotation(m, add_numbers = TRUE),
+        right_annotation = upset_right_annotation(m, add_numbers = TRUE),
+        comb_order = rev(order(comb_size(m))),
+        set_order = c(paste0(names(protein.list)[1], "_UP_sig"), 
+                      paste0(names(protein.list)[2], "_UP_sig"), 
+                      paste0(names(protein.list)[3], "_UP_sig"),
+                      paste0(names(protein.list)[1], "_UP_Dib"), 
+                      paste0(names(protein.list)[2], "_UP_Dib"), 
+                      paste0(names(protein.list)[3], "_UP_Dib"),
+                      paste0(names(protein.list)[1], "_DOWN_sig"), 
+                      paste0(names(protein.list)[2], "_DOWN_sig"), 
+                      paste0(names(protein.list)[3], "_DOWN_sig"),
+                      paste0(names(protein.list)[1], "_DOWN_Dib"), 
+                      paste0(names(protein.list)[2], "_DOWN_Dib"), 
+                      paste0(names(protein.list)[3], "_DOWN_Dib")),
+        column_title = paste0("")))
+
+  invisible(dev.off())
+  
+  return(list(protein.list_UP=protein.list_UP, protein.list_DOWN=protein.list_DOWN))
+}
+
+log2FoldChange_thresh = 0
+padj_thresh = 0.2
+protein.list = makeUpset(log2FoldChange_thresh, padj_thresh)
+
+```
+
+# Functional pathway analysis (Comp1)
+
+```{r}
+# Combine the selected up or down resulated features together across all three cellular compartments
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+library(org.Hs.eg.db)
+Diablo.up = lapply(compartments, function(i) {
+    final.diablo.model$loadings[[i]][, "comp1"] %>%
+      .[.<0] %>% names()
+  }) %>% unlist() %>% unique() 
+# Combine the DEG result together to get all the protein_IDs and genes
+all = Reduce(full_join, rslt.list)
+# dim(all)
+Diablo.up.genes = all[all$Protein_IDs%in%Diablo.up, "Genes", drop=T] %>%
+  unique() %>% mapIds(org.Hs.eg.db, keys = ., 
+                column = "ENTREZID", keytype = "SYMBOL", 
+                multiVals = "first")
+Diablo.down = lapply(compartments, function(i) {
+    final.diablo.model$loadings[[i]][, "comp1"] %>%
+      .[.>0] %>% names()
+  }) %>% unlist() %>% unique()
+Diablo.down.genes = all[all$Protein_IDs%in%Diablo.down, "Genes", drop=T] %>%
+  unique() %>% mapIds(org.Hs.eg.db, keys = ., 
+                column = "ENTREZID", keytype = "SYMBOL", 
+                multiVals = "first")
+entrez_list_sig = list(up = Diablo.up.genes, down = Diablo.down.genes)
+entrez_list_sig$up %>% length()
+entrez_list_sig$down %>% length()
+length(Diablo.up)
+length(Diablo.down)
+```
+
+```{r}
+dir.create(paste0(OUTDIR, "/pathwayAnalysis/"), recursive = T, showWarnings = F)
+
+library(clusterProfiler)
+# print("KEGG GSEA analysis")
+# library(xlsx)
+kk.sig = lapply(names(entrez_list_sig), function(i) {
+  gl = entrez_list_sig[[i]] %>% as.character()
+  kk = NULL
+  if (length(gl)>0) {
+    set.seed(1234)
+    kk= enrichKEGG(gene = gl,
+                   organism = 'hsa',
+                   pvalueCutoff = 1,
+                   qvalueCutoff = 1,
+                   #universe = universe,
+                   use_internal_data = F)
+    print("Convert Entrez ID back to gene symbol")
+    source("../src/convertEntrez2Symbol.R")
+    kk@result$geneID_Symbol = 
+      convertEntrez2Symbol(kk@result$geneID, mapping_list=entrez_list_sig[[i]]) %>%
+      as.character()
+    if (file.exists(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_comp1.xlsx"))) {
+        file.remove(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_comp1.xlsx"))}
+    options(java.parameters = "-Xmx1000m")
+    write.xlsx(as.data.frame(kk@result), 
+             paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_comp1.xlsx"),
+             sheetName = paste0(i, "_Diablo"),
+             col.names=TRUE, row.names=FALSE,
+             append=T)
+  }
+  return(kk)
+}) %>% setNames(names(entrez_list_sig))
+
+saveRDS(kk.sig, paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_comp1.RDS"))
+# kk.sig = readRDS(paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
+```
+
+### Dotplot showing significant KEGG pathways
+
+```{r}
+source("../src/makeDotplot.R")
+p1 = makeDotplot_ORA_KEGG(list(all=kk.sig), index.list=1, 
+                       qval.thresh=0.1)
+pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_qvalueCutoff0.1_comp1.pdf"), h=13.5, w=10)
+p1
+invisible(dev.off())
+
+p1 = makeDotplot_ORA_KEGG(list(all=kk.sig), index.list=1, 
+                       qval.thresh=0.05)
+pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_qvalueCutoff0.05_comp1.pdf"), h=10, w=10)
+p1
+invisible(dev.off())
+```
+
+
+# Drug targets (Comp1)
+
+- LINCS L1000 Chem Pert Consensus Sigs
+- LINCS L1000 CRISPR KO Consensus Sigs
+- Proteomics Drug Atlas 2023
+- DSigDB
+- ARCHS4 IDG Coexp
+- DrugMatrix
+- MAGMA Drugs and Diseases
+- IDG Drug Targets 2022
+
+```{r}
+dir.create(paste0(OUTDIR, "/DrugTargets/"), recursive = T, showWarnings = F)
+#install.packages("enrichR")
+library(enrichR)
+listEnrichrSites()
+#dbs <- listEnrichrDbs()
+# dbs$libraryName[grep("L1000", dbs$libraryName)]
+# grep("GMT", dbs$libraryName, value=T)
+#head(dbs)
+
+# Select drug related databases:
+dbs <- c("LINCS_L1000_Chem_Pert_Consensus_Sigs", 
+         "Proteomics_Drug_Atlas_2023", "DSigDB",
+         "MAGMA_Drugs_and_Diseases", "IDG_Drug_Targets_2022")
+# EnrichR analysis for all up/down regulated genes in alcoholism
+pdf(paste0(OUTDIR, "/DrugTargets/EnrichR_top_drug_sets.pdf"))
+lapply(c("up", "down"), function(i) {
+  enriched <- invisible(enrichr(names(entrez_list_sig[[i]]), dbs))
+  # if (file.exists(paste0(OUTDIR, "/DrugTargets/EnrichR_", i, ".xlsx"))) {
+  #   file.remove(paste0(OUTDIR, "/DrugTargets/EnrichR_", i, ".xlsx"))
+  # }
+  for (d in dbs) {
+    if (nrow(enriched[[d]])>0) {
+      #options(java.parameters = "-Xmx1000m")
+      # Plot
+      print(plotEnrich(enriched[[d]], showTerms = 20, numChar = 40, 
+                 y = "Count", orderBy = "P.value", 
+                 title=paste0(d, "_", i)))
+      # Save the result tables
+      write.xlsx(enriched[[d]], 
+                 paste0(OUTDIR, "/DrugTargets/EnrichR_", i, "_", d,".xlsx"),
+                 #sheetName = d,
+                 col.names=TRUE, row.names=FALSE,
+                 append=F)
+    }
+  }  
+})
+invisible(dev.off())
+
+```
+
+
+
+# Session Info
+
+```{r}
+sink(paste0(OUTDIR, "sessionInfo.txt"))
+print(sessionInfo())
+sink()
+```
+
+# Deliverables
+
+# Directory
+
+## Practical info
+
+## Software
+
+# Data responsibility
+
+The responsibility for data archiving lies wscale = TRUEith the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+# Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).
