@@ -17,7 +17,7 @@ makeDotplot_ORA_KEGG = function(rslt, index.list=1:2,
                                     Count_reg=-Count,
                                     Condition=names(rslt1)[i])
     r = rbind(up, down) %>% 
-      select(Condition, Regulation, Count_reg, qvalue, everything()) %>%
+      dplyr::select(Condition, Regulation, Count_reg, qvalue, everything()) %>%
       filter(qvalue<qval.thresh)
     r
   }) %>% Reduce(full_join, .)

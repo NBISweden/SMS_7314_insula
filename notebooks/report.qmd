@@ -193,6 +193,7 @@ design.table.list = lapply(design.table.list, function(t) {
 ```
 
 ```{r}
+print("Import protein group abundance data:")
 print("Get sample names")
 sample_names = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = F) %>%
   sapply(., function(i) strsplit(i, " ")[[1]][1]) %>%
@@ -204,6 +205,7 @@ inputfiles = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = T
 dataTable.list1 = suppressWarnings(map(inputfiles, function(x) {
   get_dat = function(j) {
     dat = read_excel(x, sheet=j, col_names=TRUE, na="", skip=0)
+    dat = filter(dat, `Q-value`<0.01)
     ncol = ncol(dat)
     dat = dat %>% 
       .[, c('Protein IDs', "Gene names",
@@ -875,10 +877,9 @@ doVolcano = function(resi, NAME, lfcShrink=F) {
                                           label = Protein_IDs)) +
     geom_hline(yintercept = -log10(0.2), lty = 2) +
     geom_vline(xintercept = c(-log2(0), log2(0)), lty = 2) + 
-    scale_colour_manual(values = c("blue", "black", "red")) + 
+    scale_colour_manual(values = c("down"="blue", "nonSig"="black", "up"="red")) + 
     theme(legend.position="none") +
     ggtitle(ifelse(lfcShrink, paste0(NAME, "_lfcShrink"), paste0(NAME, "")))
-  
   return(p)
 }
 
@@ -1152,7 +1153,7 @@ runkk = function(entrez_list_sig) {
         as.character()
       file = ifelse(length(entrez_list_sig)==1, 
                     paste0(OUTDIR_ORA, "KEGG_ORA_all.xlsx"),
-                    paste0(OUTDIR_ORA, "KEGG_ORA.xlsx"))
+                    paste0(OUTDIR_ORA, "KEGG_ORA_", i, ".xlsx"))
       if (file.exists(file)) {
         file.remove(file)}
       write.xlsx(as.data.frame(kk_up@result), 
@@ -1189,7 +1190,25 @@ runkk = function(entrez_list_sig) {
 kk.sig = runkk(entrez_list_sig)
 
 saveRDS(kk.sig, paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
+# outDir = outDir = "../results/rerun/"
+# OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
 # kk.sig = readRDS(paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
+# lapply(names(kk.sig), function(i) {
+#   if (!is.null(kk.sig[[i]]$up)) {
+#     file = paste0(OUTDIR_ORA, "KEGG_ORA_", i, ".xlsx")
+#     #file.remove(file)
+#     write.xlsx(as.data.frame(kk.sig[[i]]$up@result), 
+#                file,
+#                sheetName = paste0(i, "_up"),
+#                col.names=TRUE, row.names=FALSE,
+#                append=T)
+#     write.xlsx(as.data.frame(kk.sig[[i]]$down@result), 
+#                file,
+#                sheetName = paste0(i, "_down"),
+#                col.names=TRUE, row.names=FALSE,
+#                append=T)
+#   }
+# })
 ```
 
 ### Dotplot showing significant KEGG pathways
@@ -1508,6 +1527,7 @@ invisible(dev.off())
 ```
 
 **I would rather use the Target analysis results from the DIABLO, rather than from here**
+
 
 ```{r}
 sink(paste0(OUTDIR_ORA, "/seesionInfo.txt"))

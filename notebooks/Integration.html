@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 <meta name="author" content="Yuan Li">
-<meta name="dcterms.date" content="2024-06-12">
+<meta name="dcterms.date" content="2024-09-09">
 
 <title>Subcellular proteomic analysis of the insula in alcohol dependence</title>
 <style>
@@ -99,7 +99,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">June 12, 2024</p>
+      <p class="date">September 9, 2024</p>
     </div>
   </div>
   
@@ -276,8 +276,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>                  <span class="at">test.keepX=</span>test.keepX, <span class="at">OUTDIR=</span>OUTDIR)</span>
 <span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  }) <span class="sc">%&gt;%</span> <span class="fu">setNames</span>(<span class="fu">paste0</span>(<span class="st">"Strength_"</span>, strengths))</span>
 <span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>  </span>
-<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">saveRDS</span>(tuneRslt, <span class="fu">paste0</span>(OUTDIR, <span class="st">"/ParameterTuning/TuningResults.RDS"</span>))  </span>
-<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">saveRDS</span>(tuneRslt, <span class="fu">paste0</span>(OUTDIR, <span class="st">"/ParameterTuning/TuningResults.RDS"</span>)) </span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>  <span class="co"># tuneRslt = readRDS(paste0(OUTDIR, "/ParameterTuning/TuningResults.RDS"))</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>ncomps <span class="ot">=</span> <span class="fu">data.frame</span>(<span class="at">ID =</span> <span class="fu">names</span>(tuneRslt),</span>
@@ -309,7 +310,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>() <span class="sc">+</span></span>
 <span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>() <span class="sc">+</span></span>
 <span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_bw</span>()</span>
-<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="fu">paste0</span>(OUTDIR, <span class="st">"/MajorityVote.error.rates.pdf"</span>))</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="fu">paste0</span>(OUTDIR, <span class="st">"/MajorityVote.error.rates.pdf"</span>), <span class="at">h=</span><span class="dv">2</span>, <span class="at">w=</span><span class="dv">6</span>)</span>
 <span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(p)</span>
 <span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a><span class="fu">invisible</span>(<span class="fu">dev.off</span>())</span>
 <span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>p</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
@@ -350,146 +351,146 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a><span class="fu">rm</span>(p)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>$df
-                   x           y   group               Block pch pch.levels cex
-127N_G1   5.65615183 -5.01632595 control    Block: CYTOSOLIC   1          1   3
-127C_G1   1.01153016  2.61266510 control    Block: CYTOSOLIC   1          1   3
-128N_G1   2.69486513  2.39734641 control    Block: CYTOSOLIC   1          1   3
-128C_G1   0.77654876  3.30019560 control    Block: CYTOSOLIC   1          1   3
-129N_G1   6.28005318 -0.99017056 control    Block: CYTOSOLIC   1          1   3
-129C_G1   0.28731022  2.29313026 control    Block: CYTOSOLIC   1          1   3
-128N_G2   5.10439270 -0.12410138 control    Block: CYTOSOLIC   1          1   3
-128C_G2   5.25279708  0.34349526 control    Block: CYTOSOLIC   1          1   3
-129N_G2   2.82453238  1.84955538 control    Block: CYTOSOLIC   1          1   3
-129C_G2   3.33259663  0.03141347 control    Block: CYTOSOLIC   1          1   3
-130N_G2   3.24698838 -0.65241821 control    Block: CYTOSOLIC   1          1   3
-130C_G2   4.05024634 -0.06211475 control    Block: CYTOSOLIC   1          1   3
-130N_G1  -2.60730058  1.68917903    case    Block: CYTOSOLIC   2          2   3
-130C_G1  -3.77130851  1.82925740    case    Block: CYTOSOLIC   2          2   3
-131N_G1  -5.15472780 -2.26737203    case    Block: CYTOSOLIC   2          2   3
-131C_G1  -1.15328903 -0.96767403    case    Block: CYTOSOLIC   2          2   3
-132N_G1  -4.14751027 -3.07547734    case    Block: CYTOSOLIC   2          2   3
-132C_G1  -2.04489901 -2.71819679    case    Block: CYTOSOLIC   2          2   3
-131N_G2  -2.94158249 -0.42562265    case    Block: CYTOSOLIC   2          2   3
-131C_G2  -5.53658713  0.33238099    case    Block: CYTOSOLIC   2          2   3
-132N_G2  -3.12801560 -1.09827025    case    Block: CYTOSOLIC   2          2   3
-132C_G2  -5.37513481  1.63867769    case    Block: CYTOSOLIC   2          2   3
-133N_G2  -4.65765753 -0.91955263    case    Block: CYTOSOLIC   2          2   3
-127N_G11  3.51041401 -4.08774988 control       Block: PELLET   1          1   3
-127C_G11  2.11152760  2.92620948 control       Block: PELLET   1          1   3
-128N_G11  0.84829197  1.45720013 control       Block: PELLET   1          1   3
-128C_G11  3.67500840  1.44677100 control       Block: PELLET   1          1   3
-129N_G11  3.57145952 -1.67022901 control       Block: PELLET   1          1   3
-129C_G11  1.63747372  2.43084384 control       Block: PELLET   1          1   3
-128N_G21  3.34374095 -0.07897501 control       Block: PELLET   1          1   3
-128C_G21  2.58761993  1.46749803 control       Block: PELLET   1          1   3
-129N_G21  2.62337297  0.17883612 control       Block: PELLET   1          1   3
-129C_G21  0.60589183 -0.12062391 control       Block: PELLET   1          1   3
-130N_G21  1.50365601 -0.05595640 control       Block: PELLET   1          1   3
-130C_G21  2.69450609  0.30969665 control       Block: PELLET   1          1   3
-130N_G11 -1.81045990 -0.25349113    case       Block: PELLET   2          2   3
-130C_G11 -3.54605093  0.13750693    case       Block: PELLET   2          2   3
-131N_G11 -3.67139100 -1.45872349    case       Block: PELLET   2          2   3
-131C_G11 -1.95780792 -1.95882607    case       Block: PELLET   2          2   3
-132N_G11 -1.88449660 -1.95182510    case       Block: PELLET   2          2   3
-132C_G11 -1.11256427 -1.83925898    case       Block: PELLET   2          2   3
-131N_G21 -1.89628739 -0.31376320    case       Block: PELLET   2          2   3
-131C_G21 -3.65008876  1.28017855    case       Block: PELLET   2          2   3
-132N_G21 -2.17089817 -0.56158685    case       Block: PELLET   2          2   3
-132C_G21 -4.65164490  2.92133914    case       Block: PELLET   2          2   3
-133N_G21 -2.36127315 -0.20507085    case       Block: PELLET   2          2   3
-127N_G12  3.27084435 -2.59374352 control Block: SYNAPTOSOMAL   1          1   3
-127C_G12  0.64617292  1.64021125 control Block: SYNAPTOSOMAL   1          1   3
-128N_G12  0.52091993  1.71393491 control Block: SYNAPTOSOMAL   1          1   3
-128C_G12 -0.08067937  2.61533579 control Block: SYNAPTOSOMAL   1          1   3
-129N_G12  1.40764289 -0.78455903 control Block: SYNAPTOSOMAL   1          1   3
-129C_G12  1.08524279  1.43166889 control Block: SYNAPTOSOMAL   1          1   3
-128N_G22 -0.78065906  1.57541542 control Block: SYNAPTOSOMAL   1          1   3
-128C_G22  0.10077056  2.37494471 control Block: SYNAPTOSOMAL   1          1   3
-129N_G22  0.51115682  0.35471329 control Block: SYNAPTOSOMAL   1          1   3
-129C_G22  1.59871173  0.10869578 control Block: SYNAPTOSOMAL   1          1   3
-130N_G22  1.81605860  0.43533266 control Block: SYNAPTOSOMAL   1          1   3
-130C_G22  0.56668750  1.06432571 control Block: SYNAPTOSOMAL   1          1   3
-130N_G12 -1.56802506 -0.34031420    case Block: SYNAPTOSOMAL   2          2   3
-130C_G12 -0.47063023  1.32215753    case Block: SYNAPTOSOMAL   2          2   3
-131N_G12 -1.56620167 -1.98984420    case Block: SYNAPTOSOMAL   2          2   3
-131C_G12 -0.32843917 -1.20093538    case Block: SYNAPTOSOMAL   2          2   3
-132N_G12 -0.39287235 -3.61703707    case Block: SYNAPTOSOMAL   2          2   3
-132C_G12 -0.65226271 -1.34994384    case Block: SYNAPTOSOMAL   2          2   3
-131N_G22 -1.12418552  0.12698344    case Block: SYNAPTOSOMAL   2          2   3
-131C_G22 -2.09312046 -0.20781289    case Block: SYNAPTOSOMAL   2          2   3
-132N_G22 -0.77869576 -1.85202952    case Block: SYNAPTOSOMAL   2          2   3
-132C_G22 -1.59894486  1.32356580    case Block: SYNAPTOSOMAL   2          2   3
-133N_G22 -0.08949186 -2.15106551    case Block: SYNAPTOSOMAL   2          2   3
-             col pch.legend
-127N_G1  #388ECC          1
-127C_G1  #388ECC          1
-128N_G1  #388ECC          1
-128C_G1  #388ECC          1
-129N_G1  #388ECC          1
-129C_G1  #388ECC          1
-128N_G2  #388ECC          1
-128C_G2  #388ECC          1
-129N_G2  #388ECC          1
-129C_G2  #388ECC          1
-130N_G2  #388ECC          1
-130C_G2  #388ECC          1
-130N_G1  #F68B33          2
-130C_G1  #F68B33          2
-131N_G1  #F68B33          2
-131C_G1  #F68B33          2
-132N_G1  #F68B33          2
-132C_G1  #F68B33          2
-131N_G2  #F68B33          2
-131C_G2  #F68B33          2
-132N_G2  #F68B33          2
-132C_G2  #F68B33          2
-133N_G2  #F68B33          2
-127N_G11 #388ECC          1
-127C_G11 #388ECC          1
-128N_G11 #388ECC          1
-128C_G11 #388ECC          1
-129N_G11 #388ECC          1
-129C_G11 #388ECC          1
-128N_G21 #388ECC          1
-128C_G21 #388ECC          1
-129N_G21 #388ECC          1
-129C_G21 #388ECC          1
-130N_G21 #388ECC          1
-130C_G21 #388ECC          1
-130N_G11 #F68B33          2
-130C_G11 #F68B33          2
-131N_G11 #F68B33          2
-131C_G11 #F68B33          2
-132N_G11 #F68B33          2
-132C_G11 #F68B33          2
-131N_G21 #F68B33          2
-131C_G21 #F68B33          2
-132N_G21 #F68B33          2
-132C_G21 #F68B33          2
-133N_G21 #F68B33          2
-127N_G12 #388ECC          1
-127C_G12 #388ECC          1
-128N_G12 #388ECC          1
-128C_G12 #388ECC          1
-129N_G12 #388ECC          1
-129C_G12 #388ECC          1
-128N_G22 #388ECC          1
-128C_G22 #388ECC          1
-129N_G22 #388ECC          1
-129C_G22 #388ECC          1
-130N_G22 #388ECC          1
-130C_G22 #388ECC          1
-130N_G12 #F68B33          2
-130C_G12 #F68B33          2
-131N_G12 #F68B33          2
-131C_G12 #F68B33          2
-132N_G12 #F68B33          2
-132C_G12 #F68B33          2
-131N_G22 #F68B33          2
-131C_G22 #F68B33          2
-132N_G22 #F68B33          2
-132C_G22 #F68B33          2
-133N_G22 #F68B33          2
+                   x            y   group               Block pch pch.levels
+127N_G1   5.35321930 -7.650704317 control    Block: CYTOSOLIC   1          1
+127C_G1   1.05461864  3.959716527 control    Block: CYTOSOLIC   1          1
+128N_G1   2.65293457  2.859798269 control    Block: CYTOSOLIC   1          1
+128C_G1   0.73893052  4.715974660 control    Block: CYTOSOLIC   1          1
+129N_G1   5.95838510 -1.240502123 control    Block: CYTOSOLIC   1          1
+129C_G1   0.32364440  2.863609070 control    Block: CYTOSOLIC   1          1
+128N_G2   4.92097888 -0.279464541 control    Block: CYTOSOLIC   1          1
+128C_G2   4.98566550  0.463949654 control    Block: CYTOSOLIC   1          1
+129N_G2   2.71611689  2.643996865 control    Block: CYTOSOLIC   1          1
+129C_G2   3.29244664  0.006540455 control    Block: CYTOSOLIC   1          1
+130N_G2   3.17567580 -0.514190232 control    Block: CYTOSOLIC   1          1
+130C_G2   3.84846294  0.205538543 control    Block: CYTOSOLIC   1          1
+130N_G1  -2.50214932  1.932114731    case    Block: CYTOSOLIC   2          2
+130C_G1  -3.57031570  2.552963704    case    Block: CYTOSOLIC   2          2
+131N_G1  -4.99594879 -3.160017050    case    Block: CYTOSOLIC   2          2
+131C_G1  -1.16128955 -1.014509481    case    Block: CYTOSOLIC   2          2
+132N_G1  -4.08345818 -4.491383065    case    Block: CYTOSOLIC   2          2
+132C_G1  -1.94577597 -3.589410510    case    Block: CYTOSOLIC   2          2
+131N_G2  -2.86779611 -0.478629300    case    Block: CYTOSOLIC   2          2
+131C_G2  -5.21748852  1.034063076    case    Block: CYTOSOLIC   2          2
+132N_G2  -3.07631665 -1.364033870    case    Block: CYTOSOLIC   2          2
+132C_G2  -5.17273980  1.649806614    case    Block: CYTOSOLIC   2          2
+133N_G2  -4.42780060 -1.105227680    case    Block: CYTOSOLIC   2          2
+127N_G11  3.23250003 -4.480556454 control       Block: PELLET   1          1
+127C_G11  1.78963385  3.434709230 control       Block: PELLET   1          1
+128N_G11  0.99959802  0.912865704 control       Block: PELLET   1          1
+128C_G11  2.41814921  1.974497246 control       Block: PELLET   1          1
+129N_G11  2.87964693 -1.618061136 control       Block: PELLET   1          1
+129C_G11  1.29261525  2.217988398 control       Block: PELLET   1          1
+128N_G21  2.53304520 -0.340762801 control       Block: PELLET   1          1
+128C_G21  1.97235081  1.518725479 control       Block: PELLET   1          1
+129N_G21  1.94738092  0.829650498 control       Block: PELLET   1          1
+129C_G21  0.57721130 -0.872490098 control       Block: PELLET   1          1
+130N_G21  1.57558399 -0.422219605 control       Block: PELLET   1          1
+130C_G21  2.15881870  0.783043706 control       Block: PELLET   1          1
+130N_G11 -1.44312723 -0.664891662    case       Block: PELLET   2          2
+130C_G11 -2.80796261 -0.019811818    case       Block: PELLET   2          2
+131N_G11 -3.10700735 -1.751212078    case       Block: PELLET   2          2
+131C_G11 -1.60469267 -1.884354081    case       Block: PELLET   2          2
+132N_G11 -1.85927120 -1.231532117    case       Block: PELLET   2          2
+132C_G11 -0.75309085 -2.264734616    case       Block: PELLET   2          2
+131N_G21 -1.46320221  0.083650644    case       Block: PELLET   2          2
+131C_G21 -2.43384154  1.308552432    case       Block: PELLET   2          2
+132N_G21 -1.86398693 -0.445437759    case       Block: PELLET   2          2
+132C_G21 -3.76633033  2.786136379    case       Block: PELLET   2          2
+133N_G21 -2.27402129  0.146244509    case       Block: PELLET   2          2
+127N_G12  3.18170902 -1.865772675 control Block: SYNAPTOSOMAL   1          1
+127C_G12  0.61058046  1.195292513 control Block: SYNAPTOSOMAL   1          1
+128N_G12  0.50711547  0.884839312 control Block: SYNAPTOSOMAL   1          1
+128C_G12 -0.06804243  1.744801261 control Block: SYNAPTOSOMAL   1          1
+129N_G12  1.31398461 -0.440504911 control Block: SYNAPTOSOMAL   1          1
+129C_G12  1.16762502  0.680237676 control Block: SYNAPTOSOMAL   1          1
+128N_G22 -0.72634552  1.014275312 control Block: SYNAPTOSOMAL   1          1
+128C_G22  0.04189403  2.084701730 control Block: SYNAPTOSOMAL   1          1
+129N_G22  0.48644179  0.710374039 control Block: SYNAPTOSOMAL   1          1
+129C_G22  1.69985804  0.092831710 control Block: SYNAPTOSOMAL   1          1
+130N_G22  1.88495744  0.283741592 control Block: SYNAPTOSOMAL   1          1
+130C_G22  0.63283761  1.286135896 control Block: SYNAPTOSOMAL   1          1
+130N_G12 -1.52448126 -0.762694309    case Block: SYNAPTOSOMAL   2          2
+130C_G12 -0.38719842  0.801899588    case Block: SYNAPTOSOMAL   2          2
+131N_G12 -1.57477678 -1.058030899    case Block: SYNAPTOSOMAL   2          2
+131C_G12 -0.35330329 -1.292987544    case Block: SYNAPTOSOMAL   2          2
+132N_G12 -0.42331466 -2.790748590    case Block: SYNAPTOSOMAL   2          2
+132C_G12 -0.61176800 -0.876413361    case Block: SYNAPTOSOMAL   2          2
+131N_G22 -1.20474465  0.288052065    case Block: SYNAPTOSOMAL   2          2
+131C_G22 -2.10523110  0.009258974    case Block: SYNAPTOSOMAL   2          2
+132N_G22 -0.80956657 -1.387528006    case Block: SYNAPTOSOMAL   2          2
+132C_G22 -1.67194965  1.264916757    case Block: SYNAPTOSOMAL   2          2
+133N_G22 -0.06628116 -1.866678130    case Block: SYNAPTOSOMAL   2          2
+         cex     col pch.legend
+127N_G1    3 #388ECC          1
+127C_G1    3 #388ECC          1
+128N_G1    3 #388ECC          1
+128C_G1    3 #388ECC          1
+129N_G1    3 #388ECC          1
+129C_G1    3 #388ECC          1
+128N_G2    3 #388ECC          1
+128C_G2    3 #388ECC          1
+129N_G2    3 #388ECC          1
+129C_G2    3 #388ECC          1
+130N_G2    3 #388ECC          1
+130C_G2    3 #388ECC          1
+130N_G1    3 #F68B33          2
+130C_G1    3 #F68B33          2
+131N_G1    3 #F68B33          2
+131C_G1    3 #F68B33          2
+132N_G1    3 #F68B33          2
+132C_G1    3 #F68B33          2
+131N_G2    3 #F68B33          2
+131C_G2    3 #F68B33          2
+132N_G2    3 #F68B33          2
+132C_G2    3 #F68B33          2
+133N_G2    3 #F68B33          2
+127N_G11   3 #388ECC          1
+127C_G11   3 #388ECC          1
+128N_G11   3 #388ECC          1
+128C_G11   3 #388ECC          1
+129N_G11   3 #388ECC          1
+129C_G11   3 #388ECC          1
+128N_G21   3 #388ECC          1
+128C_G21   3 #388ECC          1
+129N_G21   3 #388ECC          1
+129C_G21   3 #388ECC          1
+130N_G21   3 #388ECC          1
+130C_G21   3 #388ECC          1
+130N_G11   3 #F68B33          2
+130C_G11   3 #F68B33          2
+131N_G11   3 #F68B33          2
+131C_G11   3 #F68B33          2
+132N_G11   3 #F68B33          2
+132C_G11   3 #F68B33          2
+131N_G21   3 #F68B33          2
+131C_G21   3 #F68B33          2
+132N_G21   3 #F68B33          2
+132C_G21   3 #F68B33          2
+133N_G21   3 #F68B33          2
+127N_G12   3 #388ECC          1
+127C_G12   3 #388ECC          1
+128N_G12   3 #388ECC          1
+128C_G12   3 #388ECC          1
+129N_G12   3 #388ECC          1
+129C_G12   3 #388ECC          1
+128N_G22   3 #388ECC          1
+128C_G22   3 #388ECC          1
+129N_G22   3 #388ECC          1
+129C_G22   3 #388ECC          1
+130N_G22   3 #388ECC          1
+130C_G22   3 #388ECC          1
+130N_G12   3 #F68B33          2
+130C_G12   3 #F68B33          2
+131N_G12   3 #F68B33          2
+131C_G12   3 #F68B33          2
+132N_G12   3 #F68B33          2
+132C_G12   3 #F68B33          2
+131N_G22   3 #F68B33          2
+131C_G22   3 #F68B33          2
+132N_G22   3 #F68B33          2
+132C_G22   3 #F68B33          2
+133N_G22   3 #F68B33          2
 
 $df.ellipse
 NULL
@@ -689,58 +690,68 @@ $graph</code></pre>
 <div class="sourceCode cell-code" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>compartments <span class="ot">=</span> <span class="fu">c</span>(<span class="st">"CYTOSOLIC"</span>, <span class="st">"PELLET"</span>, <span class="st">"SYNAPTOSOMAL"</span>)</span>
 <span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>comps <span class="ot">=</span> <span class="fu">c</span>(<span class="dv">1</span>,<span class="dv">2</span>)</span>
 <span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="fu">paste0</span>(OUTDIR, <span class="st">"/selectedProteins/SelectedFeatureLoadingPlot.pdf"</span>), <span class="at">h=</span><span class="dv">6</span>, <span class="at">w=</span><span class="dv">6</span>)</span>
-<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a><span class="fu">lapply</span>(comps, <span class="cf">function</span>(comp) {</span>
-<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (cell <span class="cf">in</span> compartments) {</span>
-<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>    loadings <span class="ot">=</span> </span>
-<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a>      final.diablo.model<span class="sc">$</span>loadings[[cell]][,comp][<span class="fu">abs</span>(final.diablo.model<span class="sc">$</span>loadings[[cell]][,comp])<span class="sc">&gt;</span><span class="dv">0</span>]</span>
-<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a>    sorted_loadings <span class="ot">=</span> loadings[<span class="fu">order</span>(<span class="fu">abs</span>(loadings), <span class="at">decreasing=</span>T)]</span>
-<span id="cb27-10"><a href="#cb27-10" aria-hidden="true" tabindex="-1"></a>    colors <span class="ot">=</span> <span class="fu">ifelse</span>(sorted_loadings<span class="sc">&gt;</span><span class="dv">0</span>, <span class="st">"blue"</span>, <span class="st">"orange"</span>)</span>
-<span id="cb27-11"><a href="#cb27-11" aria-hidden="true" tabindex="-1"></a>    sorted_loadings2 <span class="ot">=</span> <span class="fu">data.frame</span>(<span class="at">Protein=</span><span class="fu">names</span>(sorted_loadings),</span>
-<span id="cb27-12"><a href="#cb27-12" aria-hidden="true" tabindex="-1"></a>                                  <span class="at">Loading =</span> <span class="fu">as.numeric</span>(sorted_loadings))</span>
-<span id="cb27-13"><a href="#cb27-13" aria-hidden="true" tabindex="-1"></a>    <span class="fu">colnames</span>(sorted_loadings2) <span class="ot">=</span> <span class="fu">c</span>(<span class="st">"Protein"</span>, <span class="fu">paste0</span>(<span class="st">"Loading_comp"</span>, comp))</span>
-<span id="cb27-14"><a href="#cb27-14" aria-hidden="true" tabindex="-1"></a>    sorted_loadings2<span class="sc">$</span>Protein <span class="ot">=</span> </span>
-<span id="cb27-15"><a href="#cb27-15" aria-hidden="true" tabindex="-1"></a>      <span class="fu">factor</span>(sorted_loadings2<span class="sc">$</span>Protein, <span class="at">levels=</span>sorted_loadings2<span class="sc">$</span>Protein)</span>
-<span id="cb27-16"><a href="#cb27-16" aria-hidden="true" tabindex="-1"></a>    <span class="fu">par</span>(<span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">5</span>, <span class="dv">1</span>, <span class="fl">0.5</span>))</span>
-<span id="cb27-17"><a href="#cb27-17" aria-hidden="true" tabindex="-1"></a>    p <span class="ot">=</span> sorted_loadings2  <span class="sc">%&gt;%</span></span>
-<span id="cb27-18"><a href="#cb27-18" aria-hidden="true" tabindex="-1"></a>      <span class="fu">ggplot</span>(., <span class="fu">aes_string</span>(<span class="at">x=</span><span class="st">"Protein"</span>, <span class="at">y=</span> <span class="fu">paste0</span>(<span class="st">"Loading_comp"</span>, comp))) <span class="sc">+</span></span>
-<span id="cb27-19"><a href="#cb27-19" aria-hidden="true" tabindex="-1"></a>      <span class="fu">geom_bar</span>(<span class="at">stat=</span><span class="st">"identity"</span>, <span class="at">fill=</span>colors) <span class="sc">+</span></span>
-<span id="cb27-20"><a href="#cb27-20" aria-hidden="true" tabindex="-1"></a>      <span class="fu">coord_flip</span>() <span class="sc">+</span> </span>
-<span id="cb27-21"><a href="#cb27-21" aria-hidden="true" tabindex="-1"></a>      <span class="fu">theme_bw</span>() <span class="sc">+</span> <span class="fu">theme</span>(</span>
-<span id="cb27-22"><a href="#cb27-22" aria-hidden="true" tabindex="-1"></a>        <span class="at">axis.ticks=</span><span class="fu">element_blank</span>(),</span>
-<span id="cb27-23"><a href="#cb27-23" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.background=</span><span class="fu">element_rect</span>(<span class="at">fill=</span><span class="st">"white"</span>),</span>
-<span id="cb27-24"><a href="#cb27-24" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.grid.minor=</span><span class="fu">element_blank</span>(),</span>
-<span id="cb27-25"><a href="#cb27-25" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.grid.major.x=</span><span class="fu">element_blank</span>(),</span>
-<span id="cb27-26"><a href="#cb27-26" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.grid.major.y=</span><span class="fu">element_line</span>(<span class="at">size=</span><span class="fl">0.3</span>, <span class="at">color=</span><span class="st">"white"</span>),</span>
-<span id="cb27-27"><a href="#cb27-27" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.border=</span><span class="fu">element_blank</span>())</span>
-<span id="cb27-28"><a href="#cb27-28" aria-hidden="true" tabindex="-1"></a>    <span class="co"># p = sorted_loadings  %&gt;%</span></span>
-<span id="cb27-29"><a href="#cb27-29" aria-hidden="true" tabindex="-1"></a>    <span class="co">#   barplot(., horiz=TRUE, las=1, main="PCA Loadings", xlab="Loadings", border=FALSE,col = colors)    </span></span>
-<span id="cb27-30"><a href="#cb27-30" aria-hidden="true" tabindex="-1"></a>    <span class="fu">assign</span>(<span class="fu">paste0</span>(<span class="st">"comp"</span>, comp, <span class="st">"_"</span>, cell), p)</span>
-<span id="cb27-31"><a href="#cb27-31" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb27-32"><a href="#cb27-32" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (comp<span class="sc">==</span><span class="dv">1</span>) {</span>
-<span id="cb27-33"><a href="#cb27-33" aria-hidden="true" tabindex="-1"></a>    cowplot<span class="sc">::</span><span class="fu">ggdraw</span>() <span class="sc">+</span></span>
-<span id="cb27-34"><a href="#cb27-34" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp1_CYTOSOLIC, <span class="at">x =</span> <span class="dv">0</span>, <span class="at">y =</span> <span class="dv">0</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="dv">1</span>) <span class="sc">+</span></span>
-<span id="cb27-35"><a href="#cb27-35" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp1_PELLET, <span class="at">x =</span> <span class="fl">0.5</span>, <span class="at">y =</span> <span class="fl">0.45</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="fl">0.55</span>) <span class="sc">+</span> </span>
-<span id="cb27-36"><a href="#cb27-36" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp1_SYNAPTOSOMAL, <span class="at">x =</span> <span class="fl">0.5</span>, <span class="at">y =</span> <span class="dv">0</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="fl">0.15</span>) <span class="sc">+</span> </span>
-<span id="cb27-37"><a href="#cb27-37" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot_label</span>(<span class="at">label =</span> <span class="fu">c</span>(compartments), <span class="at">size =</span> <span class="dv">12</span>, <span class="at">x =</span> <span class="fu">c</span>(<span class="fl">0.28</span>,<span class="fl">0.72</span>,<span class="fl">0.6</span>), </span>
-<span id="cb27-38"><a href="#cb27-38" aria-hidden="true" tabindex="-1"></a>                      <span class="at">y =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>,<span class="fl">0.2</span>))    </span>
-<span id="cb27-39"><a href="#cb27-39" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
-<span id="cb27-40"><a href="#cb27-40" aria-hidden="true" tabindex="-1"></a>    cowplot<span class="sc">::</span><span class="fu">ggdraw</span>() <span class="sc">+</span></span>
-<span id="cb27-41"><a href="#cb27-41" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp2_CYTOSOLIC, <span class="at">x =</span> <span class="dv">0</span>, <span class="at">y =</span> <span class="dv">0</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="dv">1</span>) <span class="sc">+</span></span>
-<span id="cb27-42"><a href="#cb27-42" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp2_PELLET, <span class="at">x =</span> <span class="fl">0.5</span>, <span class="at">y =</span> <span class="fl">0.65</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="fl">0.35</span>) <span class="sc">+</span> </span>
-<span id="cb27-43"><a href="#cb27-43" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp2_SYNAPTOSOMAL, <span class="at">x =</span> <span class="fl">0.5</span>, <span class="at">y =</span> <span class="dv">0</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="fl">0.35</span>) <span class="sc">+</span> </span>
-<span id="cb27-44"><a href="#cb27-44" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot_label</span>(<span class="at">label =</span> compartments, <span class="at">size =</span> <span class="dv">12</span>, </span>
-<span id="cb27-45"><a href="#cb27-45" aria-hidden="true" tabindex="-1"></a>                      <span class="at">x =</span> <span class="fu">c</span>(<span class="fl">0.25</span>,<span class="fl">0.8</span>,<span class="fl">0.6</span>), <span class="at">y =</span> <span class="fu">c</span>(<span class="dv">1</span>,<span class="dv">1</span>,<span class="fl">0.4</span>))       </span>
-<span id="cb27-46"><a href="#cb27-46" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb27-47"><a href="#cb27-47" aria-hidden="true" tabindex="-1"></a>})</span>
-<span id="cb27-48"><a href="#cb27-48" aria-hidden="true" tabindex="-1"></a><span class="fu">invisible</span>(<span class="fu">dev.off</span>())</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a><span class="co"># OUTDIR = "../results/rerun/Integration/DIABLO/" </span></span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a><span class="co"># final.diablo.model = readRDS(paste0(OUTDIR, "final.diablo.model.RDS"))</span></span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a><span class="co"># pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureLoadingPlot.pdf"), h=6, w=6)</span></span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a><span class="fu">lapply</span>(comps, <span class="cf">function</span>(comp) {</span>
+<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (cell <span class="cf">in</span> compartments) {</span>
+<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a>    loadings <span class="ot">=</span> </span>
+<span id="cb27-10"><a href="#cb27-10" aria-hidden="true" tabindex="-1"></a>      final.diablo.model<span class="sc">$</span>loadings[[cell]][,comp][<span class="fu">abs</span>(final.diablo.model<span class="sc">$</span>loadings[[cell]][,comp])<span class="sc">&gt;</span><span class="dv">0</span>]</span>
+<span id="cb27-11"><a href="#cb27-11" aria-hidden="true" tabindex="-1"></a>    sorted_loadings <span class="ot">=</span> loadings[<span class="fu">order</span>(<span class="fu">abs</span>(loadings), <span class="at">decreasing=</span>T)]</span>
+<span id="cb27-12"><a href="#cb27-12" aria-hidden="true" tabindex="-1"></a>    colors <span class="ot">=</span> <span class="fu">ifelse</span>(sorted_loadings<span class="sc">&gt;</span><span class="dv">0</span>, <span class="st">"blue"</span>, <span class="st">"orange"</span>)</span>
+<span id="cb27-13"><a href="#cb27-13" aria-hidden="true" tabindex="-1"></a>    sorted_loadings2 <span class="ot">=</span> <span class="fu">data.frame</span>(<span class="at">Protein=</span><span class="fu">names</span>(sorted_loadings),</span>
+<span id="cb27-14"><a href="#cb27-14" aria-hidden="true" tabindex="-1"></a>                                  <span class="at">Loading =</span> <span class="fu">as.numeric</span>(sorted_loadings))</span>
+<span id="cb27-15"><a href="#cb27-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">colnames</span>(sorted_loadings2) <span class="ot">=</span> <span class="fu">c</span>(<span class="st">"Protein"</span>, <span class="fu">paste0</span>(<span class="st">"Loading_comp"</span>, comp))</span>
+<span id="cb27-16"><a href="#cb27-16" aria-hidden="true" tabindex="-1"></a>    sorted_loadings2<span class="sc">$</span>Protein <span class="ot">=</span> </span>
+<span id="cb27-17"><a href="#cb27-17" aria-hidden="true" tabindex="-1"></a>      <span class="fu">factor</span>(sorted_loadings2<span class="sc">$</span>Protein, <span class="at">levels=</span>sorted_loadings2<span class="sc">$</span>Protein)</span>
+<span id="cb27-18"><a href="#cb27-18" aria-hidden="true" tabindex="-1"></a>    <span class="fu">par</span>(<span class="at">mar =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">5</span>, <span class="dv">1</span>, <span class="fl">0.5</span>))</span>
+<span id="cb27-19"><a href="#cb27-19" aria-hidden="true" tabindex="-1"></a>    p <span class="ot">=</span> sorted_loadings2  <span class="sc">%&gt;%</span></span>
+<span id="cb27-20"><a href="#cb27-20" aria-hidden="true" tabindex="-1"></a>      <span class="fu">ggplot</span>(., <span class="fu">aes_string</span>(<span class="at">x=</span><span class="st">"Protein"</span>, <span class="at">y=</span> <span class="fu">paste0</span>(<span class="st">"Loading_comp"</span>, comp))) <span class="sc">+</span></span>
+<span id="cb27-21"><a href="#cb27-21" aria-hidden="true" tabindex="-1"></a>      <span class="fu">geom_bar</span>(<span class="at">stat=</span><span class="st">"identity"</span>, <span class="at">fill=</span>colors) <span class="sc">+</span></span>
+<span id="cb27-22"><a href="#cb27-22" aria-hidden="true" tabindex="-1"></a>      <span class="fu">coord_flip</span>() <span class="sc">+</span> </span>
+<span id="cb27-23"><a href="#cb27-23" aria-hidden="true" tabindex="-1"></a>      <span class="fu">theme_bw</span>() <span class="sc">+</span> <span class="fu">theme</span>(</span>
+<span id="cb27-24"><a href="#cb27-24" aria-hidden="true" tabindex="-1"></a>        <span class="at">axis.ticks=</span><span class="fu">element_blank</span>(),</span>
+<span id="cb27-25"><a href="#cb27-25" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.background=</span><span class="fu">element_rect</span>(<span class="at">fill=</span><span class="st">"white"</span>),</span>
+<span id="cb27-26"><a href="#cb27-26" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.grid.minor=</span><span class="fu">element_blank</span>(),</span>
+<span id="cb27-27"><a href="#cb27-27" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.grid.major.x=</span><span class="fu">element_blank</span>(),</span>
+<span id="cb27-28"><a href="#cb27-28" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.grid.major.y=</span><span class="fu">element_line</span>(<span class="at">size=</span><span class="fl">0.3</span>, <span class="at">color=</span><span class="st">"white"</span>),</span>
+<span id="cb27-29"><a href="#cb27-29" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.border=</span><span class="fu">element_blank</span>())</span>
+<span id="cb27-30"><a href="#cb27-30" aria-hidden="true" tabindex="-1"></a>    <span class="co"># p = sorted_loadings  %&gt;%</span></span>
+<span id="cb27-31"><a href="#cb27-31" aria-hidden="true" tabindex="-1"></a>    <span class="co">#   barplot(., horiz=TRUE, las=1, main="PCA Loadings", xlab="Loadings", border=FALSE,col = colors)    </span></span>
+<span id="cb27-32"><a href="#cb27-32" aria-hidden="true" tabindex="-1"></a>    <span class="fu">assign</span>(<span class="fu">paste0</span>(<span class="st">"comp"</span>, comp, <span class="st">"_"</span>, cell), p)</span>
+<span id="cb27-33"><a href="#cb27-33" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb27-34"><a href="#cb27-34" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (comp<span class="sc">==</span><span class="dv">1</span>) {</span>
+<span id="cb27-35"><a href="#cb27-35" aria-hidden="true" tabindex="-1"></a>    <span class="fu">pdf</span>(<span class="fu">paste0</span>(OUTDIR, <span class="st">"/selectedProteins/SelectedFeatureLoadingPlot_comp1.pdf"</span>), <span class="at">h=</span><span class="dv">6</span>, <span class="at">w=</span><span class="dv">6</span>)</span>
+<span id="cb27-36"><a href="#cb27-36" aria-hidden="true" tabindex="-1"></a>    <span class="fu">print</span>(cowplot<span class="sc">::</span><span class="fu">ggdraw</span>() <span class="sc">+</span></span>
+<span id="cb27-37"><a href="#cb27-37" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp1_CYTOSOLIC, <span class="at">x =</span> <span class="dv">0</span>, <span class="at">y =</span> <span class="dv">0</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="dv">1</span>) <span class="sc">+</span></span>
+<span id="cb27-38"><a href="#cb27-38" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp1_PELLET, <span class="at">x =</span> <span class="fl">0.5</span>, <span class="at">y =</span> <span class="fl">0.45</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="fl">0.55</span>) <span class="sc">+</span> </span>
+<span id="cb27-39"><a href="#cb27-39" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp1_SYNAPTOSOMAL, <span class="at">x =</span> <span class="fl">0.5</span>, <span class="at">y =</span> <span class="dv">0</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="fl">0.15</span>) <span class="sc">+</span> </span>
+<span id="cb27-40"><a href="#cb27-40" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot_label</span>(<span class="at">label =</span> <span class="fu">c</span>(compartments), <span class="at">size =</span> <span class="dv">12</span>, <span class="at">x =</span> <span class="fu">c</span>(<span class="fl">0.28</span>,<span class="fl">0.72</span>,<span class="fl">0.6</span>), </span>
+<span id="cb27-41"><a href="#cb27-41" aria-hidden="true" tabindex="-1"></a>                      <span class="at">y =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>,<span class="fl">0.2</span>)))</span>
+<span id="cb27-42"><a href="#cb27-42" aria-hidden="true" tabindex="-1"></a>    <span class="fu">invisible</span>(<span class="fu">dev.off</span>())</span>
+<span id="cb27-43"><a href="#cb27-43" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb27-44"><a href="#cb27-44" aria-hidden="true" tabindex="-1"></a>    <span class="fu">pdf</span>(<span class="fu">paste0</span>(OUTDIR, <span class="st">"/selectedProteins/SelectedFeatureLoadingPlot_comp2.pdf"</span>), <span class="at">h=</span><span class="dv">4</span>, <span class="at">w=</span><span class="dv">6</span>)</span>
+<span id="cb27-45"><a href="#cb27-45" aria-hidden="true" tabindex="-1"></a>    <span class="fu">print</span>(cowplot<span class="sc">::</span><span class="fu">ggdraw</span>() <span class="sc">+</span></span>
+<span id="cb27-46"><a href="#cb27-46" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp2_CYTOSOLIC, <span class="at">x =</span> <span class="dv">0</span>, <span class="at">y =</span> <span class="fl">0.3</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="fl">0.7</span>) <span class="sc">+</span></span>
+<span id="cb27-47"><a href="#cb27-47" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp2_PELLET, <span class="at">x =</span> <span class="fl">0.5</span>, <span class="at">y =</span> <span class="fl">0.4</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="fl">0.6</span>) <span class="sc">+</span> </span>
+<span id="cb27-48"><a href="#cb27-48" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot</span>(comp2_SYNAPTOSOMAL, <span class="at">x =</span> <span class="fl">0.5</span>, <span class="at">y =</span> <span class="dv">0</span>, <span class="at">width =</span> <span class="fl">0.5</span>, <span class="at">height =</span> <span class="fl">0.4</span>) <span class="sc">+</span> </span>
+<span id="cb27-49"><a href="#cb27-49" aria-hidden="true" tabindex="-1"></a>      <span class="fu">draw_plot_label</span>(<span class="at">label =</span> compartments, <span class="at">size =</span> <span class="dv">12</span>, </span>
+<span id="cb27-50"><a href="#cb27-50" aria-hidden="true" tabindex="-1"></a>                      <span class="at">x =</span> <span class="fu">c</span>(<span class="fl">0.25</span>,<span class="fl">0.8</span>,<span class="fl">0.6</span>), <span class="at">y =</span> <span class="fu">c</span>(<span class="dv">1</span>,<span class="dv">1</span>,<span class="fl">0.4</span>)))</span>
+<span id="cb27-51"><a href="#cb27-51" aria-hidden="true" tabindex="-1"></a>    <span class="fu">invisible</span>(<span class="fu">dev.off</span>())</span>
+<span id="cb27-52"><a href="#cb27-52" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb27-53"><a href="#cb27-53" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb27-54"><a href="#cb27-54" aria-hidden="true" tabindex="-1"></a><span class="co"># invisible(dev.off())</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>[[1]]
+quartz_off_screen 
+                2 
 
-[[2]]</code></pre>
+[[2]]
+quartz_off_screen 
+                2 </code></pre>
 </div>
 </div>
-<p>The function plotLoadings() visualises the loading weights of each selected variable on each component and each data set (Figure above). The colour indicates the class in which the variable has the maximum level of expression (contrib = ‘max’) using the median (method = ‘median’). Figure above depicts the loading values for the two dimensions. The bar color stands for the condition (case/control) that has the maximum average abundance (mean in method) across all the groups. The bar length: the contribution of each protein to one PC, the longer the bar, the most important it is Bars extending to the right represent proteins that are positively correlated with one PC, indicating that the cells with higher PC scores tend to have higher abundance of this protein. Conversely, bars extending to the left stands for proteins that are negatively correlated with one PC, meaning as the abundance of these proteins increase in a cell, the PC score of this cell will decrease.</p>
+<p>The function plotLoadings() visualises the loading weights of each selected variable on each component and each data set (Figure above). The colour indicates the group in which the protein has the maximum level of expression (contrib = ‘max’) using the median (method = ‘median’). Figure above depicts the loading values for the two dimensions. The bar color stands for the condition (case/control) that has the maximum average abundance across all the groups. The bar length: the contribution of each protein to one component, the longer the bar, the more important it is. Bars extending to the right represent proteins that are positively correlated with one component, indicating that the samples with higher component scores tend to have higher abundance of this protein. Conversely, bars extending to the left stands for proteins that are negatively correlated with one component, meaning as the abundance of these proteins increase in a sample, the PC score of this sample will decrease.</p>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"../src/cimDiablo.R"</span>)</span>
 <span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(readxl)</span>
@@ -1021,10 +1032,10 @@ quartz_off_screen
 <span id="cb37-26"><a href="#cb37-26" aria-hidden="true" tabindex="-1"></a><span class="fu">length</span>(Diablo.up)</span>
 <span id="cb37-27"><a href="#cb37-27" aria-hidden="true" tabindex="-1"></a><span class="fu">length</span>(Diablo.down)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>[1] 43
-[1] 25
-[1] 43
-[1] 25</code></pre>
+<pre><code>[1] 35
+[1] 18
+[1] 35
+[1] 18</code></pre>
 </div>
 </div>
 <div class="cell">

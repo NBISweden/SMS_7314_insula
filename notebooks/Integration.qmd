@@ -68,7 +68,6 @@ Because there is a big batch effect (between G1 and G2, see the PCA plot in ../r
 
 DIABLO, stands for Data Integration Analysis for Biomarker discovery using Latent cOmponents, it is a mult-omics method that simultaneously identifies key omics variables during the integration process and discriminates phenotypic groups. DIABLO maximizes the common or correlated information between mulitple datasets, i.e. it also accounts for interactions (reflected by the design matrix strengths) between different datasets.
 
-
 # Import the data and preparation
 
 ```{r}
@@ -220,10 +219,10 @@ if (file.exists(paste0(OUTDIR, "/ParameterTuning/TuningResults.RDS"))) {
                   test.keepX=test.keepX, OUTDIR=OUTDIR)
   }) %>% setNames(paste0("Strength_", strengths))
   
-  saveRDS(tuneRslt, paste0(OUTDIR, "/ParameterTuning/TuningResults.RDS"))  
+  saveRDS(tuneRslt, paste0(OUTDIR, "/ParameterTuning/TuningResults.RDS")) 
+  # tuneRslt = readRDS(paste0(OUTDIR, "/ParameterTuning/TuningResults.RDS"))
 }
 ```
-
 
 ```{r}
 ncomps = data.frame(ID = names(tuneRslt),
@@ -241,7 +240,6 @@ ncomps = data.frame(ID = names(tuneRslt),
 # rm(p)
 ```
 
-
 ```{r}
 #| fig-cap: "City and highway mileage for 38 popular models of cars."
 error.rates = data.frame(ID = names(tuneRslt),
@@ -258,7 +256,7 @@ p = ggplot(error.rates, aes(x=ID, y=MajorityVote.error.rates, color=comps, group
   geom_line() +
   geom_point() +
   theme_bw()
-pdf(paste0(OUTDIR, "/MajorityVote.error.rates.pdf"))
+pdf(paste0(OUTDIR, "/MajorityVote.error.rates.pdf"), h=2, w=6)
 print(p)
 invisible(dev.off())
 p
@@ -272,8 +270,8 @@ rm(p)
 
 ```{r}
 saveRDS(final.diablo.model, paste0(OUTDIR, "final.diablo.model.RDS"))
+# final.diablo.model = readRDS(paste0(OUTDIR, "final.diablo.model.RDS"))
 ```
-
 
 # Plotting for final model
 
@@ -338,7 +336,6 @@ dev.off()
 DIABLOcovariatePlot(compartments)
 ```
 
-
 ```{r}
 p = plotArrow(final.diablo.model, ind.names = FALSE, legend = TRUE,
           title = 'DIABLO')
@@ -362,7 +359,6 @@ invisible(dev.off())
 ```
 
 This plot is a diagnostic plot to check whether the correlation between components from each data set has been maximised as specified in the design matrix. The first plot is for component 1, while the second plot is for component 2.
- 
 
 ```{r}
 dir.create(paste0(OUTDIR, "/selectedProteins/"), recursive=T, showWarnings = F)
@@ -405,8 +401,6 @@ invisible(lapply(seq_along(selected_features), function(comp) {
   })}))
 
 ```
-
-
 
 ```{r}
 #The Correlation structure between variables can be shown with the correlation circle plot, as depicted in Figure here. The selected variables from all three compartments seem to separate along the both dimension. From this, the correlation of each selected feature from all three datasets can be evaluated based on their proximity
@@ -454,7 +448,9 @@ write.graph(my.network$gR, file = paste0(OUTDIR, "myNetwork.gml"), format = "gml
 compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
 comps = c(1,2)
 
-pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureLoadingPlot.pdf"), h=6, w=6)
+# OUTDIR = "../results/rerun/Integration/DIABLO/" 
+# final.diablo.model = readRDS(paste0(OUTDIR, "final.diablo.model.RDS"))
+# pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureLoadingPlot.pdf"), h=6, w=6)
 lapply(comps, function(comp) {
   for (cell in compartments) {
     loadings = 
@@ -483,26 +479,30 @@ lapply(comps, function(comp) {
     assign(paste0("comp", comp, "_", cell), p)
   }
   if (comp==1) {
-    cowplot::ggdraw() +
+    pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureLoadingPlot_comp1.pdf"), h=6, w=6)
+    print(cowplot::ggdraw() +
       draw_plot(comp1_CYTOSOLIC, x = 0, y = 0, width = 0.5, height = 1) +
-      draw_plot(comp1_PELLET, x = 0.5, y = 0.45, width = 0.5, height = 0.55) + 
-      draw_plot(comp1_SYNAPTOSOMAL, x = 0.5, y = 0, width = 0.5, height = 0.15) + 
+      draw_plot(comp1_PELLET, x = 0.5, y = 0.6, width = 0.5, height = 0.4) + 
+      draw_plot(comp1_SYNAPTOSOMAL, x = 0.5, y = 0, width = 0.5, height = 0.2) + 
       draw_plot_label(label = c(compartments), size = 12, x = c(0.28,0.72,0.6), 
-                      y = c(1, 1,0.2))    
+                      y = c(1, 1,0.3)))
+    invisible(dev.off())
   } else {
-    cowplot::ggdraw() +
+    pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureLoadingPlot_comp2.pdf"), h=5, w=6)
+    print(cowplot::ggdraw() +
       draw_plot(comp2_CYTOSOLIC, x = 0, y = 0, width = 0.5, height = 1) +
-      draw_plot(comp2_PELLET, x = 0.5, y = 0.65, width = 0.5, height = 0.35) + 
-      draw_plot(comp2_SYNAPTOSOMAL, x = 0.5, y = 0, width = 0.5, height = 0.35) + 
+      draw_plot(comp2_PELLET, x = 0.5, y = 0.5, width = 0.5, height = 0.5) + 
+      draw_plot(comp2_SYNAPTOSOMAL, x = 0.5, y = 0, width = 0.5, height = 0.25) + 
       draw_plot_label(label = compartments, size = 12, 
-                      x = c(0.25,0.8,0.6), y = c(1,1,0.4))       
+                      x = c(0.28,0.8,0.6), y = c(1,1,0.3)))
+    invisible(dev.off())
   }
 })
-invisible(dev.off())
+# invisible(dev.off())
 
 ```
 
-The function plotLoadings() visualises the loading weights of each selected variable on each component and each data set (Figure above). The colour indicates the class in which the variable has the maximum level of expression (contrib = 'max') using the median (method = 'median'). Figure above depicts the loading values for the two dimensions. The bar color stands for the condition (case/control) that has the maximum average abundance (mean in method) across all the groups. The bar length: the contribution of each protein to one PC, the longer the bar, the most important it is Bars extending to the right represent proteins that are positively correlated with one PC, indicating that the cells with higher PC scores tend to have higher abundance of this protein. Conversely, bars extending to the left stands for proteins that are negatively correlated with one PC, meaning as the abundance of these proteins increase in a cell, the PC score of this cell will decrease.
+The function plotLoadings() visualises the loading weights of each selected variable on each component and each data set (Figure above). The colour indicates the group in which the protein has the maximum level of expression (contrib = 'max') using the median (method = 'median'). Figure above depicts the loading values for the two dimensions. The bar color stands for the condition (case/control) that has the maximum average abundance across all the groups. The bar length: the contribution of each protein to one component, the longer the bar, the more important it is. Bars extending to the right represent proteins that are positively correlated with one component, indicating that the samples with higher component scores tend to have higher abundance of this protein. Conversely, bars extending to the left stands for proteins that are negatively correlated with one component, meaning as the abundance of these proteins increase in a sample, the PC score of this sample will decrease.
 
 ```{r, fig.height=8, fig.width=15}
 source("../src/cimDiablo.R")
@@ -545,8 +545,7 @@ invisible(dev.off())
 drawHeatmap(comps)
 ```
 
-Heatmap showing the protein abundance of the selected proteins/Features from each dataset that are differentially abundant between alcoholism from control 
-
+Heatmap showing the protein abundance of the selected proteins/Features from each dataset that are differentially abundant between alcoholism from control
 
 ```{r, fig.height=3, fig.width=12}
 compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
@@ -640,7 +639,6 @@ lapply(names(rslt.list), function(i) {
   #print(plotsigProt$plot)
 })
 ```
-
 
 ## Selected feature VS differential proteins (comp1): upset plot
 
@@ -791,7 +789,7 @@ kk.sig = lapply(names(entrez_list_sig), function(i) {
 }) %>% setNames(names(entrez_list_sig))
 
 saveRDS(kk.sig, paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_comp1.RDS"))
-# kk.sig = readRDS(paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
+# kk.sig = readRDS(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_comp1.RDS"))
 ```
 
 ### Dotplot showing significant KEGG pathways
@@ -800,28 +798,27 @@ saveRDS(kk.sig, paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_comp1.RDS"))
 source("../src/makeDotplot.R")
 p1 = makeDotplot_ORA_KEGG(list(all=kk.sig), index.list=1, 
                        qval.thresh=0.1)
-pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_qvalueCutoff0.1_comp1.pdf"), h=13.5, w=10)
+pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_qvalueCutoff0.1_comp1.pdf"), h=9.5, w=10)
 p1
 invisible(dev.off())
 
 p1 = makeDotplot_ORA_KEGG(list(all=kk.sig), index.list=1, 
                        qval.thresh=0.05)
-pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_qvalueCutoff0.05_comp1.pdf"), h=10, w=10)
+pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_qvalueCutoff0.05_comp1.pdf"), h=7, w=10)
 p1
 invisible(dev.off())
 ```
 
-
 # Drug targets (Comp1)
 
-- LINCS L1000 Chem Pert Consensus Sigs
-- LINCS L1000 CRISPR KO Consensus Sigs
-- Proteomics Drug Atlas 2023
-- DSigDB
-- ARCHS4 IDG Coexp
-- DrugMatrix
-- MAGMA Drugs and Diseases
-- IDG Drug Targets 2022
+-   LINCS L1000 Chem Pert Consensus Sigs
+-   LINCS L1000 CRISPR KO Consensus Sigs
+-   Proteomics Drug Atlas 2023
+-   DSigDB
+-   ARCHS4 IDG Coexp
+-   DrugMatrix
+-   MAGMA Drugs and Diseases
+-   IDG Drug Targets 2022
 
 ```{r}
 dir.create(paste0(OUTDIR, "/DrugTargets/"), recursive = T, showWarnings = F)
@@ -863,8 +860,6 @@ lapply(c("up", "down"), function(i) {
 invisible(dev.off())
 
 ```
-
-
 
 # Session Info
 
