@@ -228,16 +228,6 @@ if (file.exists(paste0(OUTDIR, "/ParameterTuning/TuningResults.RDS"))) {
 ncomps = data.frame(ID = names(tuneRslt),
          ncomp = tuneRslt %>% purrr::map(~ .x$final.model$ncomp[1]) %>%
            unlist())
-# library(ggplot2)
-# p = ggplot(ncomps, aes(x=ID, y=ncomp, group=1)) +
-#   geom_line(color="pink") +
-#   geom_point() +
-#   theme_bw()
-# pdf(paste0(OUTDIR, "/ncomps.pdf"))
-# print(p)
-# dev.off()
-# p
-# rm(p)
 ```
 
 ```{r}
@@ -756,7 +746,8 @@ length(Diablo.down)
 
 ```{r}
 dir.create(paste0(OUTDIR, "/pathwayAnalysis/"), recursive = T, showWarnings = F)
-
+if (file.exists(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_comp1.xlsx"))) {
+        file.remove(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_comp1.xlsx"))}
 library(clusterProfiler)
 # print("KEGG GSEA analysis")
 # library(xlsx)
@@ -776,8 +767,6 @@ kk.sig = lapply(names(entrez_list_sig), function(i) {
     kk@result$geneID_Symbol = 
       convertEntrez2Symbol(kk@result$geneID, mapping_list=entrez_list_sig[[i]]) %>%
       as.character()
-    if (file.exists(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_comp1.xlsx"))) {
-        file.remove(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_comp1.xlsx"))}
     options(java.parameters = "-Xmx1000m")
     write.xlsx(as.data.frame(kk@result), 
              paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_comp1.xlsx"),

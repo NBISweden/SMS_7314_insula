@@ -1,0 +1,335 @@
+---
+title: Subcellular proteomic analysis of the insula in alcohol dependence
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+toc: true
+number-sections: true
+format: 
+  html:
+    #embed-resources: true #This works from command line not from Rstudio
+    code-fold: false
+    code-tools: true
+    code-link: true
+    theme: pandoc
+    df-print: paged
+    html-math-method: katex #use katex for math text
+  pdf:
+    code-line-numbers: true
+    geometry: 
+      - top=30mm
+      - left=30mm
+  docx: default
+language:
+  code-summary: Click to show code
+editor_options:
+  chunk_output_type: inline
+editor: visual
+---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+```
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
+
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+
+# Import and process the data
+
+```{r}
+suppressPackageStartupMessages({
+  library(readxl)
+  library(purrr)
+  library(EDASeq)
+  library(limma)
+  library(emmeans)   
+  library(edgeR)
+  library(future.apply)
+  library(dplyr)
+  library(tidyr)
+  library(plyr)
+  library(xlsx)
+  library(ggplot2)
+  library(ComplexHeatmap)
+  library(GGally)
+  library(org.Hs.eg.db)
+  library(AnnotationDbi) 
+  library(pathview)
+  library(UniProt.ws)
+  library(GGally)
+  library(clusterProfiler)
+  library(ggrepel)
+  library(enrichR)
+})
+```
+
+```{r}
+jName = "7314"
+inputP = "../data/Creative Proteomics_DATA/"
+# dataP = paste0("../data/input_", jName) #
+# dir.create(dataP, showWarnings=F, recursive=T) #
+designP = paste0("../data/design_", jName) #
+dir.create(designP, showWarnings=F, recursive=T) #
+outDir = "../results/rerun/"
+dir.create(outDir, recursive = T, showWarnings = F)
+```
+
+```{r}
+print("Make the design table without ref...")
+print("We will get meta data info from sheet 5 of each excel file")
+print("This is the company normalized data, whose count will NOT be analyzed here...")
+
+print("Get sample names")
+file = '~$Data result_CYTOSOLIC extracts (CPJS05122201).xlsx'
+if (file.exists(file)) {file.remove(file)}
+sample_names = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = F) %>%
+  sapply(., function(i) strsplit(i, " ")[[1]][1]) %>%
+  as.character()
+
+
+print("Import all three datasets together...")
+file = '~$Data result_CYTOSOLIC extracts (CPJS05122201).xlsx'
+if (file.exists(file)) {file.remove(file)}
+inputfiles = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = T)
+dataTable.list0 = suppressWarnings(map(inputfiles, function(x) {
+  dat = read_excel(x, sheet=5, col_names=TRUE, na="", skip=0)
+  ncol = ncol(dat)
+  dat = read_excel(x, sheet=5, col_names=TRUE, na="", skip=0,
+        col_types=c(rep("text", 4), rep("numeric", ncol(dat)-4-1), 
+                    rep("text", 1)))
+  dat = dat %>% 
+    .[, c('Protein IDs', "Gene names",
+          grep('intensity', 
+               colnames(dat), value=T))]
+  print("Only Pellet has two pool samples for each batch, will remove them...")
+  dat = dat %>% .[, colnames(dat)[!grepl('MIX', colnames(dat))]] 
+  colnames(dat) = gsub(" ", "_", colnames(dat))
+  dat
+  })) %>% setNames(sample_names)
+
+
+design.table.list = suppressWarnings(map(seq_along(dataTable.list0), function(i) {
+  dataTable = dataTable.list0[[i]]
+  sampleNames = colnames(dataTable)[3:ncol(dataTable)]
+  tab = sapply(sampleNames, function(j) {
+    strsplit(j, "_")[[1]][c(3, 4, 5, 6, 7)]
+  }) %>% as.character()
+  design.table = matrix(tab, ncol=5, byrow=T) %>% as.data.frame() %>%
+    na.omit() %>% setNames(c("sample", "Batch", "sampleID", "Fraction", "Condition")) %>%
+    dplyr::mutate(sample=paste0(sample, "_", Batch))
+  design.table$Condition = tolower(design.table$Condition)
+  design.table.filename = paste0(designP, "/design_", sample_names[i], ".tsv")
+  write.table(design.table, design.table.filename, quote=F, row.names=F, sep="\t")
+  design.table
+})) %>% setNames(sample_names)
+
+moreMeta <- tibble::tribble(
+  ~sampleID,     ~Sex,    ~Age,  ~RIN,   ~PMI,  ~Condition,   ~pH, ~TissueStorageTime_months,
+ #---------|-----------|------|-------|-------|------------|------|--------------------------|
+  "13005",      "Male",     45,    7.4,   8.48,     "case",   6.2,                   109.4,
+  "13172",      "Male",     49,    9.4,   7.32,     "case",   6.6,                    85.6,
+  "13189",    "Female",     59,    7.8,    7.5,     "case",   6.1,                    84.2,
+  "13193",      "Male",     38,    9.5,   7.78,     "case",   6.7,                    83.5,
+  "13234",    "Female",     51,    9.6,  10.12,     "case",   6.8,                    78.2,
+  "13246",      "Male",     59,    8.8,    9.5,     "case",   6.2,                    76.7,
+  "13271",      "Male",     65,    7.1,  11.97,     "case",   6.3,                    72.4,
+  "13296",      "Male",     55,    8.9,   7.68,     "case",   6.5,                    69.4,
+  "13327",      "Male",     58,    8.3,    6.7,     "case",   6.3,                    65.4,
+  "13346",      "Male",     53,    7.0,    9.3,     "case",   6.2,                    63.3,
+  "13211",      "Male",     52,    8.8,  12.33,     "case",   6.1,                    81.1,
+  "13504",      "Male",     50,    7.1,  11.25,     "case",   6.5,                    44.2,
+  "13350",      "Male",     45,    8.9,   7.08,  "control",   6.7,                    62.7,
+  "13259",      "Male",     48,    8.5,   8.25,  "control",   6.3,                    74.8,
+  "13475",    "Female",     58,    7.8,   8.75,  "control",   6.8,                    48.5,
+  "13414",      "Male",     41,    8.1,   9.85,  "control",   6.7,                    54.5,
+  "13149",    "Female",     46,    7.5,    7.6,  "control",   6.3,                    88.3,
+  "13645",      "Male",     58,    9.3,   14.4,  "control",   6.5,                    23.0,
+  "13428",      "Male",     64,    9.0,   9.22,  "control",   6.7,                    53.5,
+  "13048",      "Male",     54,    9.3,    8.4,  "control",   6.8,                   103.2,
+  "13170",      "Male",     59,    8.9,  11.65,  "control",   6.7,                    86.0,
+  "13032",      "Male",     52,    8.1,   8.97,  "control",   6.4,                   105.9,
+  "13068",      "Male",     48,    9.5,  12.78,  "control",   6.8,                   100.1,
+  "13298",      "Male",     50,    8.5,  10.67,  "control",   6.7,                    69.3,
+)
+
+design.table.list = lapply(design.table.list, function(t) {
+  dplyr::full_join(t, moreMeta)
+})
+```
+
+# Save supplementary tables to a file:
+
+```{r}
+outDir = "../results/rerun/"
+OUTDIR_QC = paste0(outDir, "/QC/")
+dataTable.list_SL_IRS_TMM =
+  readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+NAMES = c("CYTOSOLIC", "INSOLUABLE", "SYNAPTOSOMAL")
+rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+  read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+}) %>% setNames(NAMES)
+rslt.list$CYTOSOLIC[, "133C_G2"] = ""
+for (i in seq_along(rslt.list)) {
+  rslt.list[[i]]$Compartment = names(rslt.list)[i] 
+}
+SuppA = Reduce(rbind, rslt.list)
+
+OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
+ORA.list = lapply(1:2, function(j) {
+  i = names(dataTable.list_SL_IRS_TMM)[j]
+  K = NAMES[j]
+  A = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_", i, ".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+  A$Compartment = K
+  A
+})
+SupplB = Reduce(rbind, ORA.list)
+
+
+SupplC = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_all.xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+
+
+
+dbs <- c("DSigDB", 
+         "MAGMA_Drugs_and_Diseases", "IDG_Drug_Targets_2022")
+OUTDIR_diff_DRAG = "/Users/ekol-yal/Documents/Project/2024/SMS_7314_insula/results/rerun/PathwayAnalysis/ORA/DrugTargets/"
+i= "up"
+up = lapply (dbs, function(d) {
+    A = read_excel(paste0(OUTDIR_diff_DRAG, "/EnrichR_", i, "_", d,".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+    A$Reg = "Up(in AUD)"
+    A$DataBase = d
+    A
+})
+i="down"
+down = lapply (dbs, function(d) {
+    A = read_excel(paste0(OUTDIR_diff_DRAG, "/EnrichR_", i, "_", d,".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+    A$Reg = "Down(in AUD)"
+    A$DataBase = d
+    A
+})
+SupplD = Reduce(rbind, c(up, down))
+table(SupplD$Reg)
+table(SupplD$DataBase)
+
+
+
+dbs <- c("DSigDB", 
+         "MAGMA_Drugs_and_Diseases", "IDG_Drug_Targets_2022")
+OUTDIR_DIABLO_DRAG = "/Users/ekol-yal/Documents/Project/2024/SMS_7314_insula/results/rerun/Integration/DIABLO/DrugTargets/"
+i= "up"
+up = lapply (dbs, function(d) {
+    A = read_excel(paste0(OUTDIR_DIABLO_DRAG, "/EnrichR_", i, "_", d,".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+    A$Reg = "Up(in AUD)"
+    A$DataBase = d
+    A
+})
+i="down"
+down = lapply (dbs, function(d) {
+    A = read_excel(paste0(OUTDIR_DIABLO_DRAG, "/EnrichR_", i, "_", d,".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+    A$Reg = "Down(in AUD)"
+    A$DataBase = d
+    A
+})
+SupplF = Reduce(rbind, c(up, down))
+table(SupplF$Reg)
+table(SupplF$DataBase)
+
+
+
+
+# Design Table
+library(tidyverse)
+TMTset = c("TMT16", "TMT18", "TMT16")
+design.table2 = lapply(seq_along(design.table.list), function(i) {
+  m = design.table.list[[i]]
+  m$Fraction = NAMES[i]
+  m$TMTlableReagent = paste0(TMTset[i], "-", m$sample)
+  m$TMTlableReagent = gsub("_G1", "", m$TMTlableReagent)
+  m$TMTlableReagent = gsub("_G2", "", m$TMTlableReagent)
+  m = m %>% rename(TMTbatch=Batch)
+  m
+}) %>% Reduce(rbind, .)
+
+
+TableNames = list("SE"=design.table2, "SA"=SuppA, "SB"=SupplB, "SC"=SupplC, "SD"=SupplD, "SF"=SupplF)
+openxlsx::write.xlsx(TableNames, 
+             file = paste0("/Users/ekol-yal/Documents/Project/2024/SMS_7314_insula/doc/Figures_tables/SupplementaryTable.xlsx")) 
+
+```
+
+```{r}
+sink(paste0(OUTDIR_ORA, "/seesionInfo.txt"))
+print(sessionInfo())
+sink()
+```
+
+# Deliverables
+
+# Directory
+
+## Practical info
+
+## Software
+
+# Data responsibility
+
+The responsibility for data archiving lies with the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+# Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).
