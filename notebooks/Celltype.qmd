@@ -1,0 +1,193 @@
+---
+title: "Subcellular proteomic analysis of the insula in alcohol dependence"
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  bookdown::html_document2:
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: false
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+params:
+  dataset: 1
+---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+
+```
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
+
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+
+**Aim for this particular notebook**: Look for celltypes that are most likely to be responsible for the differences between AUD and UC. Here I will a brain cell type marker table downloaded from DISCO as a reference.
+
+
+# Import the Limma differential table
+
+```{r}
+library(readxl)
+library(dplyr)
+```
+
+
+```{r}
+outDir = "../results/rerun/"
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+Fractions = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+rslt.list = lapply(Fractions, function(i) {
+  read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+  }) %>% setNames(Fractions)
+
+rslt.list
+```
+
+# Import brain cell type marker reference data
+
+```{r}
+OUTDIR = paste0(outDir, "/Celltype/")
+ref2 = read.table(paste0(OUTDIR, "DISCO_Marker_brain.csv"),
+                  header=T, sep=",")
+ref2 %>% filter(Log2.FC.>0) %>% group_by(Cell.Type) %>% top_n(50, Log2.FC.) -> 
+  top_cell_selection
+
+ref_list = split(top_cell_selection$Gene, top_cell_selection$Cell.Type)
+unlist(lapply(ref_list, length))
+```
+
+# GSEA analysis
+
+```{r}
+library(fgsea)
+res = lapply(rslt.list, function(x) {
+  gene_rank = setNames(x$logFC, x$Genes)
+  set.seed(129)
+  fgseaRes = fgsea(pathways=ref_list, stats=gene_rank)
+  return(fgseaRes[rev(order(fgseaRes$NES)),])
+  })
+```
+
+
+```{r}
+Names = c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL")
+res = lapply(seq_along(res), function(i) {
+  res[[i]]$Fraction = Names[i]
+  res[[i]]$leadingEdge = sapply(res[[i]]$leadingEdge, function(g) {
+    paste(g, collapse="/")
+  }) %>% as.character()
+  res[[i]]$Celltype = res[[i]]$pathway
+  res[[i]]$pathway = NULL
+  res[[i]] %>% select(Fraction, Celltype, everything())
+})
+
+library(xlsx)
+write.xlsx(as.data.frame(Reduce(rbind, res)), 
+             paste0(OUTDIR, "CellType_prediction_GSEA.xlsx"),
+             col.names=TRUE, row.names=FALSE,
+             append=F)
+
+head(as.data.frame(Reduce(rbind, res)))
+```
+
+* Fraction
+* Celltype
+* pval: The enrichment p-value calculated by comparing the observed enrichment score to the enrichment scores of the gene sets within the permutations of the dataset. A low p-value suggests that the observed enrichment is not likely due to random chance.
+* padj: The adjusted p-value that takes multiple testing into account, using the Benjamini-Hochberg (BH) procedure to control the false discovery rate (FDR).
+* log2err: 
+* ES (Enrichment Score): The actual score calculated during the GSEA which reflects the degree to which the genes in the gene set are overrepresented at the extremes (top or bottom) of the entire ranked list of genes in your dataset.
+* NES (Normalized Enrichment Score): This is the Enrichment Score normalized against the scores from gene set permutations. It accounts for differences in gene set size and in correlations between gene sets and the expression dataset.
+* size: The number of genes in the gene set tested for enrichment.
+* leadingEdge: The genes that are in the leading edge subset. These are the genes that appear at the top or bottom of your ranked gene list and are driving the gene set enrichment.
+
+
+
+
+# Session Info
+
+```{r}
+sink(paste0(OUTDIR, "/sessionInfo.txt"))
+print(sessionInfo())
+sink()
+```
+
+# Method summary
+To investigate the brain cell types that are potentially responsible for AUD, we performed Gene Set Enrichment Analysis (GSEA) using the fgsea R package (v.1.24.0) with default setting. Pre-ranked gene lists were generated based on log2 fold-change from Limma differential expression analysis between AUD and UC.
+
+Enrichment analysis was conducted against brain cell type markers obtained from the DISCO (https://www.immunesinglecell.org/atlas/brain). 
+
+The threshold for significance was set at an FDR-adjusted p-value (padj) of less than 0.05. Enrichment results were summarized with normalized enrichment scores (NES), nominal p-values, and FDR q-values. Leading-edge analysis was conducted to identify the subset of genes that contributed most significantly to the enrichment results for each significantly enriched celltype.
+
+The fgsea analysis revealed significant enrichment of 4 celltypes (Protoplasmic astrocyte, Fibrous astrocyte, Microglia, Endothelial cell) for the cytosolic fraction, 2 celltypes (Endothelial cell, T cell) for the insoluble fraction, but no celltype for the synaptosomal fraction. 
+
+# Deliverables
+
+# Directory
+
+## Practical info
+
+## Software
+
+# Data responsibility
+
+The responsibility for data archiving lies wscale = TRUEith the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+# Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).

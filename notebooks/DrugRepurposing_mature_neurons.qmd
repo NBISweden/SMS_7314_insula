@@ -1,0 +1,609 @@
+---
+title: "Subcellular proteomic analysis of the insula in alcohol dependence"
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  bookdown::html_document2:
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: false
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+params:
+  dataset: 1
+---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+
+```
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
+
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+
+**Aim for this particular notebook**: look for perturbagens that have reverse expression patterns comparing to the AUD, only pertubagens that tested on mature neurons (NEU and MNEUE) are used here.
+
+```{r}
+library(readxl)
+library(dplyr)
+library(metafor)
+```
+
+
+# Look for perturbagens from L1000 database that show reverse expression pattern comparing to AUD
+
+https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE92742
+LINCS aims to enable a functional understanding of biology by cataloging changes in gene expression and other cellular processes that occur when cells are exposed to a variety of perturbing agents. The Broad Institute LINCS Center for Transcriptomics contributes to this collaborative effort by application of the Connectivity Map concept. In brief, the study design involves the generation of a compendium of transcriptional expression data from cultured human cells treated with small-molecule and genetic loss/gain of function perturbagens. These measurements are made using the L1000 high-throughput gene-expression assay that enables data generation at an unprecedented scale. The data are processed through a computational system, that converts raw fluorescence intensities into differential gene expression signatures. The data at each stage of the pre-processing are available: Level 1 (LXB) - raw, unprocessed flow cytometry data from Luminex scanners. One LXB file is generated for each well of a 384-well plate, and each file contains a fluorescence intensity value for every observed analyte in the well. Level 2 (GEX) - gene expression values per 1,000 genes after deconvolution from Luminex beads. Level 3 (Q2NORM) - gene expression profiles of both directly measured landmark transcripts plus inferred genes. Normalized using invariant set scaling followed by quantile normalization. Level 4 (Z-SCORES) - signatures with differentially expressed genes computed by robust z-scores for each profile relative to control (PC relative to plate population as control; VC relative to vehicle control). Level 5 (SIG) consists of the replicates, usually 3 per treatment, aggregated into a single differential expression vector derived from the weighted averages of the individual replicates.
+
+Here we use the level 5 data, which is the most processed data.
+
+```{r}
+# # Check the data
+# GSE70138 = cmapR::parse_gctx("../results/rerun/Additional/DrugTarget_L1000/data/GSE70138_Broad_LINCS_Level5_COMPZ_n118050x12328_2017-03-06.gctx")
+# 
+# grep("_NEU_", colnames(GSE70138@mat), value=T) %>% sapply(., function(i) {stringr::str_split(i, ":")[[1]][1]}) %>% unique()
+# grep("_NPC_", colnames(GSE70138@mat), value=T) %>% sapply(., function(i) {stringr::str_split(i, ":")[[1]][1]}) %>% unique()
+# grep("_MNEU.E_", colnames(GSE70138@mat), value=T) %>% sapply(., function(i) {stringr::str_split(i, ":")[[1]][1]}) %>% unique()
+# grep("_NPC.CAS9_", colnames(GSE70138@mat), value=T) %>% sapply(., function(i) {stringr::str_split(i, ":")[[1]][1]}) %>% unique()
+# grep("_NPC.TAK_", colnames(GSE70138@mat), value=T) %>% sapply(., function(i) {stringr::str_split(i, ":")[[1]][1]}) %>% unique()
+# 
+# # [1] "LJP007_NEU_24H" "LJP008_NEU_24H" "LJP009_NEU_24H"
+# # [1] "LJP007_NPC_24H"  "LJP008_NPC_24H"  "LJP009_NPC_24H"  "LPROT003_NPC_6H"
+# # [1] "LJP007_MNEU.E_24H"
+# # [1] "LJP007_NPC.CAS9_24H" "LJP008_NPC.CAS9_24H" "LJP009_NPC.CAS9_24H"
+# # [1] "LJP007_NPC.TAK_24H"  "LJP008_NPC.TAK_24H"  "LJP009_NPC.TAK_24H"  "LPROT001_NPC.TAK_6H" "LPROT002_NPC.TAK_6H"
+```
+
+
+```{python}
+# # Check the data
+# sig1 = pd.read_table(data_dir+"GSE92742_Broad_LINCS_sig_info.txt", sep="\t", low_memory=False)
+# sig2 = pd.read_table(data_dir+"GSE70138_Broad_LINCS_sig_info.txt", sep="\t", low_memory=False)
+# sig1_fil = sig1.loc[(sig1["cell_id"]=="NEU") | (sig1["cell_id"]=="NPC") | (sig1["cell_id"]=="MNEU.E") | (sig1["cell_id"]=="NPC.CAS9") | (sig1["cell_id"]=="NPC.TAK")]
+# sig2_fil = sig2.loc[(sig2["cell_id"]=="NEU") | (sig2["cell_id"]=="NPC") | (sig2["cell_id"]=="MNEU.E") | (sig2["cell_id"]=="NPC.CAS9") | (sig2["cell_id"]=="NPC.TAK")]
+# 
+# sorted(set(sig1_fil.iloc[:, 7].to_list()).union(set(sig2_fil.iloc[:, 5].to_list())))
+# # ['-666', '0.04 um', '0.05 um', '0.1 %', '0.1 um', '0.12 um', '0.25 um', '0.37 um', '0.4 um', '0.5 um', '0.75 um', '1 µM', '1.0 um', '1.11 um', '1.5 um', '1.5 µL', '1.7 um', '10 µM', '10.0 um', '100 nM', '12.0 um', '2.0 um', '2.5 um', '25.0 um', '3 µM', '3.0 um', '3.33 um', '3.5 um', '4.0 um', '4.5 um', '40.0 um', '5.0 um', '5.5 um', '500 nM', '6.0 um', '8.0 um']
+# ['0.04 um' '0.05 um' '0.1 um' '0.12 um' '0.25 um' '0.37 um' '0.4 um' '0.5 um' '0.75 um' '1.0 um' '1.11 um' '1.5 um' '1.7 um' '10.0 um' '100.0 um' '12.0 um' '2.0 um' '25.0 um' '3.0 um' '3.33 um' '3.5 um' '4.0 um' '4.5 um' '40.0 um' '5.0 um' '5.5 um' '500.0 nm' '6.0 um' '8.0 um']
+# ['0.04 µM' '0.05 µM' '0.1 µM' '0.12 µM' '0.25 µM' '0.37 µM' '0.4 µM' '0.5 µM' '0.75 µM' '1 µM' '1.11 µM' '1.5 µM' '1.7 µM' '10 µM' '100 µM' '12 µM' '2 µM' '25 µM' '3 µM' '3.33 µM' '3.5 µM' '4 µM' '4.5 µM' '40 µM' '5 µM' '5.5 µM' '500 nM' '6 µM' '8 µM']
+# sorted(set(sig1_fil.iloc[:, 10].to_list()).union(set(sig2_fil.iloc[:, 6].to_list())))
+# # ['24 h', '6 h', '96 h']
+# 
+# 
+# ctrl1 = sig1_fil.loc[(sig1_fil["pert_type"]=='ctl_vector.cns') | (sig1_fil["pert_type"]=="ctl_vehicle.cns") | (sig1_fil["pert_type"]=="ctl_untrt.cns") | (sig1_fil["pert_type"]=="ctl_vehicle") | (sig1_fil["pert_type"]=="ctl_untrt")  | (sig1_fil["pert_type"]=="ctl_vector")]
+# case1 = sig1_fil.loc[(sig1_fil["pert_type"]=='trt_sh.cgs') | (sig1_fil["pert_type"]=='trt_sh.css') | (sig1_fil["pert_type"]=='trt_cp') | (sig1_fil["pert_type"]=='trt_sh')]
+# set(ctrl1.iloc[:, 7].to_list())
+# # {'-666', '1.5 µL', '0.1 %'}  # It's good that we don't use those doses when filtering the data, only used those for treatment samples.
+# set(case1.iloc[:, 7].to_list())
+# # {'3 µM', '1 µM', '100 nM', '1.5 µL', '500 nM', '10 µM'}
+# set(ctrl1.iloc[:, 10].to_list())
+# set(case1.iloc[:, 10].to_list())
+# set(case1.iloc[:, 3].to_list())
+# # {'trt_sh.cgs', 'trt_sh', 'trt_sh.css', 'trt_cp'}
+# 
+# ctrl2 = sig2_fil.loc[(sig2_fil["pert_type"]=='ctl_vector.cns') | (sig2_fil["pert_type"]=="ctl_vehicle.cns") | (sig2_fil["pert_type"]=="ctl_untrt.cns") | (sig2_fil["pert_type"]=="ctl_vehicle") | (sig2_fil["pert_type"]=="ctl_untrt")  | (sig2_fil["pert_type"]=="ctl_vector")]
+# case2 = sig2_fil.loc[(sig2_fil["pert_type"]=='trt_sh.cgs') | (sig2_fil["pert_type"]=='trt_sh.css') | (sig2_fil["pert_type"]=='trt_cp') | (sig2_fil["pert_type"]=='trt_sh')]
+# set(ctrl2.iloc[:, 5].to_list())
+# # {'-666'} # It's good that we don't use those doses when filtering the data, only used those for treatment samples.
+# set(case2.iloc[:, 5].to_list())
+# # {'2.5 um', '5.5 um', '0.37 um', '0.25 um', '0.5 um', '10.0 um', '0.4 um', '1.7 um', '12.0 um', '8.0 um', '1.5 um', '3.5 um', '4.0 um', '6.0 um', '3.33 um', '25.0 um', '0.12 um', '0.04 um', '0.75 um', '1.11 um', '4.5 um', '0.05 um', '1.0 um', '5.0 um', '2.0 um', '3.0 um', '0.1 um', '40.0 um'}
+# set(ctrl2.iloc[:, 6].to_list())
+# set(case2.iloc[:, 6].to_list())
+# set(case2.iloc[:, 3].to_list())
+# # {'trt_cp'}
+```
+
+```{bash}
+# Extract all the perturbation signature data for cell lines NEU, MNEU.E, NPC, NPC.CAS9, NPC.TAK from L1000
+# bash ../results/rerun/Additional/DrugTarget_L1000/automation.sh
+```
+
+```{r}
+# sig1 = read.table("../results/rerun/Additional/DrugTarget_L1000/data/GSE92742_Broad_LINCS_sig_info.txt", 
+#                   header = T, quote = "", sep="\t") %>% as.data.frame()
+# sig2 = read.table("../results/rerun/Additional/DrugTarget_L1000/data/GSE70138_Broad_LINCS_sig_info.txt", 
+#                   header = T, quote = "", sep="\t") %>% as.data.frame()
+# filter(sig1, pert_type=="trt_sh")
+
+# Prepare for gene name conversion
+genes = 
+  read.table("../results/rerun/Additional/DrugTarget_L1000/data/GSE92742_Broad_LINCS_gene_info.txt", 
+  header = T, quote = "", sep="\t") %>% as.data.frame()
+mappings = setNames(genes$pr_gene_symbol, genes$pr_gene_id)
+
+# The perturbation signatures: when there are replicates for one combination (e.g. MNEU.E_24 h_0.05 µM, cell line: MNEU.E, pert_time: 24 h, pert_dose: 0.05 uM), the expression signature from all replicates are combined (median)
+Names_C = 
+  list.files("../results/rerun/Additional/DrugTarget_L1000/Consensus_Signatures/", pattern=".txt") %>% 
+  gsub("_Consensus.txt", "", .)
+Consensus = 
+  list.files("../results/rerun/Additional/DrugTarget_L1000/Consensus_Signatures/", pattern=".txt", 
+  full.names=T) %>% setNames(Names_C)
+length(Consensus)
+length(Names_C)
+
+# The perturbation signatures: when there are no replicates
+Names_N = 
+  list.files("../results/rerun/Additional/DrugTarget_L1000/Compounds_With_No_Replicates/", pattern=".txt") %>% 
+  gsub("_No_Replicates.txt", "", .)
+NoReplicates = 
+  list.files("../results/rerun/Additional/DrugTarget_L1000/Compounds_With_No_Replicates/", pattern=".txt", 
+  full.names=T) %>% setNames(Names_N)
+
+length(NoReplicates)
+length(Names_N)
+setdiff(Names_N, Names_C)
+Names_all = c(Names_C, Names_N) %>% unique()
+# Only use the mature neuron cell lines: MNEU.E and NEU ##############€€€€€€€€€€€€€€€&&&&&&&&&&&&&&&&***************&&&&&&&&&&&&&&#########
+Names_all = grep("NEU", Names_all, value=T)
+length(Names_all)
+
+# Combine all the consensus signatures and non-replicated signatures together into one single table for each dose+time+cellline combination:
+mat_all = lapply(Names_all, function(Name) {
+  if (Name %in% Names_C) {
+    fileC = Consensus[Name]
+    matC  = 
+      read.table(fileC, header = T, quote = "", sep="\t") %>%
+      as.data.frame()
+  } else matC=NA
+  if (Name %in% Names_N) {
+    fileN = NoReplicates[Name]
+    matN  = 
+      read.table(fileN, header = T, quote = "", sep="\t") %>%
+      as.data.frame()
+  } else matN=NA
+  if (!is.data.frame(matC)&&is.data.frame(matN)) mat=matN
+  if (!is.data.frame(matN)&&is.data.frame(matC)) mat=matC
+  if (is.data.frame(matN)&&is.data.frame(matC)) {
+    mat = rbind(matC, matN)
+    }
+  if (nrow(mat)!=0) {
+    colnames(mat) = gsub("X", "", colnames(mat))
+    mat = mat %>% tibble::column_to_rownames(var="Compound_id")
+    colnames(mat) = mappings[colnames(mat)] %>% as.character()
+    mat
+  }
+}) %>% setNames(Names_all)
+
+# Remove empty items
+mat_all = mat_all %>% Filter(Negate(is.null), .)
+# Check the number of pertubagens
+lapply(mat_all, function(mat) dim(mat))
+
+# How many distinct chemical compounds do we have:
+lapply(mat_all, function(m) {
+  rownames(m)
+}) %>% unlist() %>% as.character() %>% unique() %>% length()
+# [1] 3497
+
+# Import logFC information from our Limma differential analysis
+outDir = "../results/rerun/"
+OUTDIR_QC = paste0(outDir, "/QC/")
+dataTable.list_SL_IRS_TMM =
+  readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+NAMES = c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL")
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+rslt.list = 
+  lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+  read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+  sheet=1, col_names=TRUE, na="", skip=0)
+}) %>% setNames(NAMES)
+# rslt.list
+length(mat_all)
+
+OUTDIR = "../results/rerun/Additional/DrugTarget_L1000/onlyMatureNeuron/"
+dir.create(OUTDIR, showWarnings = F, recursive = T)
+saveRDS(mat_all, paste0(OUTDIR, "/mat_all.RDS"))
+# mat_all = readRDS(paste0(OUTDIR, "/mat_all.RDS"))
+
+```
+
+
+## Calculate spearman correlation between compound perturbation signatures and Alcoholism profiles
+
+```{r}
+output = capture.output(
+  print("Here in this version, we calculate spearman correlations between compound perturbation signatures (differential profile comparing to control) and Alcoholism profiles (comparing to control) "),
+  print("During correlation calculation, only keep compounds that appear in more than one compound+dose+time combination to increase confidence."),
+  print("Here we run the correlation calculations three times: 1. for each compound, only keep genes that have signature scores >2 or <-2; 2. for each compound, only keep genes that have signature scores >1 or <-1; 3. for each compound, only keep genes that have signature scores >0 and <0 (ca. all genes)"),
+  print("The signature score for each gene is the z-scores for each profile relative to control (PC relative to plate population as control; VC relative to vehicle control)")
+)
+
+writeLines(output, paste0(OUTDIR, "README.txt"))
+output
+
+```
+
+During correlation calculation, only keep compounds that appear in more than one condition to increase confidence.
+
+```{r}
+# Calculate spearman correlation between limma logFC (3 fractions separately) and the in vitro L1000 compound signatures
+drugRepurposing_strong = function(dat.list=rslt.list, mat_all, 
+                                  signature.score.cutoff=2, OUTDIR) {
+  NAMES = c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL")
+  # The list below has three layers: cellline+dose+time combination—>cellular fractions—>perturbagens
+  cor_ests = lapply(mat_all, function(l) {
+    lapply(dat.list, function(d) {
+      shared_genes = intersect(colnames(l), d$Genes)
+      l = l[, shared_genes]
+      d_mappings = setNames(d$logFC, d$Genes)
+      logFC = d_mappings[shared_genes]
+      cors = sapply(rownames(l), function(i) {
+        x = l[i, shared_genes] %>% as.numeric()
+        index_strong = (x>signature.score.cutoff)|(x< -signature.score.cutoff)
+        if (sum(index_strong)>3) {
+          x = x[index_strong]
+          y = logFC[shared_genes] %>% as.numeric()
+          y = y[index_strong]
+          cor(x, y, method = "spearman")
+        }}) %>% setNames(rownames(l))
+      used_genes = sapply(rownames(l), function(i) {
+        x = l[i, shared_genes] %>% as.numeric()
+        index_strong = (x>signature.score.cutoff)|(x< -signature.score.cutoff)
+        if (sum(index_strong)>3) {
+          shared_genes[index_strong]
+        }}) %>% setNames(rownames(l))
+      list(cors = cors, used_genes = used_genes)
+    }) %>% setNames(NAMES)
+  }) %>% setNames(names(mat_all))
+  
+  # Combine the perturbagens for each cellular fraction into one single table:
+  cor_ests2 = lapply(names(cor_ests), function(i) {
+    c = cor_ests[[i]]
+    lapply(names(c), function(j) {
+      c[[j]]$cors %>% unlist() %>% data.frame() %>% setNames(j) %>%
+        tibble::rownames_to_column(var="perturbants")
+    }) %>% Reduce(full_join, .) %>% 
+      tibble::column_to_rownames(var="perturbants")
+  }) %>% setNames(names(mat_all))
+  
+  # cellines = c("NEU", "NPC")
+  # Bring cellular fraction to the out layer of the list:
+  cor_ests3 = lapply(NAMES, function(f) {
+    combi = names(cor_ests2)
+    lapply(seq_along(cor_ests2[combi]), function(i) {
+      c=cor_ests2[combi][[i]]
+      N=names(cor_ests2[combi])[i]
+      mat = c[, f, drop=F] %>% setNames(N)
+      mat = mat %>% tibble::rownames_to_column(var="perturbants")
+      mat
+    }) %>% Reduce(function(x, y) merge(x, y, by="perturbants", all=T), .)    
+  }) %>% setNames(NAMES)
+  
+  # Only keep compounds that have data in more than 1 cellline+dose+time combination:
+  cor_ests3 = lapply(cor_ests3, function(cor_est) {
+    cor_est[rowSums(!is.na(cor_est[, -1]))>1, ]
+  })
+  
+  # Check how many drug disturbance studies/combinations involved for each durg:
+  lapply(cor_ests3, function(i) {apply(i, 1, function(j) {sum(!is.na(j))})})
+  # Mostly 2-5
+  saveRDS(cor_ests3, paste0(OUTDIR, "/Correlations_single_studies.RDS"))
+  
+  # show the sample size for each correlation calculation
+  sample_size = lapply(dat.list, function(d) {
+    lapply(mat_all, function(l) {
+      shared_genes = intersect(colnames(l), d$Genes)
+      sapply(rownames(l), function(i) {
+        x = l[i, shared_genes] %>% as.numeric()
+        index_strong = (x>signature.score.cutoff)|(x< -signature.score.cutoff)
+        if (sum(index_strong)>3) {
+          sum(index_strong)
+        }
+      }) %>% setNames(rownames(l))
+    }) %>% setNames(names(mat_all)) #%>% as.data.frame() %>% t()
+  }) %>% setNames(NAMES) #%>% as.data.frame()
+  
+  sample_size2 = lapply(sample_size, function(fraction) {
+      Ns = names(fraction)
+      lapply(seq_along(fraction), function(k) {
+        rep = fraction[[k]] %>% unlist() %>% 
+          data.frame() %>% setNames(Ns[k]) %>%
+          tibble::rownames_to_column(var="perturbants")
+      }) %>% Reduce(full_join, .) %>%
+        tibble::column_to_rownames(var="perturbants")
+    }) %>% setNames(NAMES) 
+  
+  # Check the average number of genes that have been used:
+  lapply(sample_size2, function(s) {apply(s, 2, function(j) mean(j[!is.na(j)])) %>% mean()} )
+  # 31-36
+  saveRDS(sample_size2, paste0(OUTDIR, "/Sample_sizes_single_studies.RDS"))
+  
+  used_genes = lapply(NAMES, function(j) {
+    lapply(names(cor_ests), function(i) {
+      print(i)
+      c = cor_ests[[i]]
+      if (sum(!is.na(names(c[[j]]$used_genes)))>1) {
+        c[[j]]$used_genes %>% sapply(., function(gl) paste0(gl, collapse = "/")) %>% 
+          unlist() %>% data.frame() %>% setNames(i) %>%
+          tibble::rownames_to_column(var="perturbants")
+      } else if (sum(!is.na(names(c[[j]]$used_genes)))==1) {
+        temp = c[[j]]$used_genes[,1] %>% 
+          paste0(., collapse = "/") %>%
+          data.frame() %>% setNames(i)
+        rownames(temp) = names(c[[j]]$used_genes)[!is.na(names(c[[j]]$used_genes))]
+        temp %>% tibble::rownames_to_column(var="perturbants")
+      }
+    }) %>% Reduce(full_join, .) %>% 
+      tibble::column_to_rownames(var="perturbants")
+  }) %>% setNames(NAMES)
+  
+  # In the list below: the out layer are cellular fractions
+  metas = lapply(seq_along(sample_size2), function(j) {
+    cor_ests3[[j]] = cor_ests3[[j]] %>% as.data.frame()
+    rownames(cor_ests3[[j]]) = NULL
+    c = cor_ests3[[j]] %>% tibble::column_to_rownames(var="perturbants")
+    sample_size2[[j]] = as.data.frame(sample_size2[[j]])
+    c = c[rownames(sample_size2[[j]]), colnames(sample_size2[[j]])]
+    meta = lapply(1:nrow(c), function(i) {
+      Index_1sample = !is.na(c[i,])
+      r = c[i,][Index_1sample] 
+      n = sample_size2[[j]][i,][Index_1sample] 
+      # We need at least three data points to calculate a correlation coefficient 
+      # (since with two points, the correlation will always be exactly 1 or -1, and thus not informative)
+      keep = n>3
+      if (sum(keep) > 0) {
+        n = n[keep]
+        r = r[keep]
+        # Calculate Fisher's Z transformation of correlations
+        #if (length(r)>1) {
+        z <- atanh(r) # Fisher's Z transformation
+        v <- 1 / (n - 3) # variances of Fisher's Z
+        # Perform the meta-analysis with weights as the inverse of the variances
+        res <- rma(yi=z, vi=v, method="REML")
+        # Back-transform the pooled estimate to the correlation scale
+        pooled_r <- tanh(res$b)
+        # Include 95% CI for the pooled correlation coefficient
+        ci.lb <- tanh(res$ci.lb)
+        ci.ub <- tanh(res$ci.ub)
+        col = vector("numeric", length = 0)
+        dat = data.frame(cbind(col, col, col, col)) %>% 
+          setNames(c("Pooled.cor", "ci.lb", "ci.ub", "p.value"))
+        dat[1, ] = c(pooled_r, ci.lb, ci.ub, res$pval)
+        rownames(dat) = rownames(c)[i]
+        dat
+      }
+    }) %>% setNames(rownames(c)) %>% Filter(Negate(is.null), .) %>% Reduce(rbind, .)
+    meta$adj.p.value = p.adjust(meta$p.value, method = "BH") 
+    meta 
+  }) %>% setNames(NAMES)
+  return(list(results=metas, genes_used=used_genes))
+}
+
+```
+
+
+### L1000 signature score cutoff = 2
+
+```{r}
+OUTDIR2 = paste0(OUTDIR, "/L1000SignatureScoreCutoff2/")
+dir.create(OUTDIR2, recursive = T, showWarnings = F)
+# Using all genes
+metas_strong = 
+  drugRepurposing_strong(dat.list=rslt.list, mat_all, 
+  signature.score.cutoff=2, OUTDIR=OUTDIR)
+saveRDS(metas_strong, paste0(OUTDIR2, "/perturbagen_candidates_OnlyStrongDrugSignature.RDS"))
+# the p-value for the test of the overall mean effect, which in a two-sided framework, tests null hypothesis that the mean effect is zero against the alternative hypothesis that it is not zer0
+# For the interpretation of the result, we need to check the *_Broad_LINCS_sig_info.txt files, to check what pert_type it is 
+  ## for trt_cp - Compound (Chemical perturbations), one may be interested to look for perturbagens with Pooled.cor<0
+
+# Save the result to a xlsx file:
+tosave = 
+  lapply(seq_along(metas_strong$results), function(i){
+  m = metas_strong$results[[i]]
+  m$Fraction = names(metas_strong$results)[i]
+  m = tibble::rownames_to_column(m, var="Perturbagen")
+  m %>% arrange(p.value)
+}) %>% Reduce(rbind, .)
+
+xlsx::write.xlsx(as.data.frame(tosave), 
+   paste0(OUTDIR2, "/perturbagen_candidates_OnlyStrongDrugSignatures.xlsx"),
+   col.names=TRUE, row.names=FALSE,
+   append=F)
+
+# Save the significant result to a xlsx file:
+tosave = lapply(seq_along(metas_strong$results), function(i){
+  m = metas_strong$results[[i]]
+  m$Fraction = names(metas_strong$results)[i]
+  m = tibble::rownames_to_column(m, var="Perturbagen")
+  m %>% arrange(Pooled.cor) %>% filter(adj.p.value<0.1)
+}) %>% Reduce(rbind, .)
+xlsx::write.xlsx(as.data.frame(tosave), 
+             paste0(OUTDIR2, "/perturbagen_candidates_OnlyStrongDrugSignatures_Significant.xlsx"),
+             col.names=TRUE, row.names=FALSE,
+             append=F)
+
+tosave_usedGenes = lapply(seq_along(metas_strong$genes_used), function(i){
+  m = metas_strong$genes_used[[i]]
+  m$Fraction = names(metas_strong$genes_used)[i]
+  m = tibble::rownames_to_column(m, var="Perturbagen")
+  m
+}) %>% Reduce(rbind, .)
+xlsx::write.xlsx(as.data.frame(tosave_usedGenes), 
+             paste0(OUTDIR2, "/UsedGenes4Identifying_perturbagen_candidates_OnlyStrongDrugSignatures.xlsx"),
+             col.names=TRUE, row.names=FALSE,
+             append=F)
+```
+
+> BRD-M29370314: "CN(C)CCOC1=C(C=C(C=C1)CCN)O.CN(C)CCOC1=C(C=CC(=C1)CCN)O"
+
+### L1000 signature score cutoff = 1
+
+```{r}
+OUTDIR1 = paste0(OUTDIR, "/L1000SignatureScoreCutoff1/")
+dir.create(OUTDIR1, recursive = T, showWarnings = F)
+# Using all genes
+metas_strong = drugRepurposing_strong(dat.list=rslt.list, mat_all, 
+                                  signature.score.cutoff=1, OUTDIR=OUTDIR)
+saveRDS(metas_strong, paste0(OUTDIR1, "/perturbagen_candidates_OnlyStrongDrugSignature.RDS"))
+# the p-value for the test of the overall mean effect, which in a two-sided framework, tests null hypothesis that the mean effect is zero against the alternative hypothesis that it is not zer0
+# For the interpretation of the result, we need to check the *_Broad_LINCS_sig_info.txt files, to check what pert_type it is 
+  ## for trt_cp - Compound (Chemical perturbations), one may be interested to look for perturbagens with Pooled.cor<0
+
+# Save the result to a xlsx file:
+tosave = lapply(seq_along(metas_strong$results), function(i){
+  m = metas_strong$results[[i]]
+  m$Fraction = names(metas_strong$results)[i]
+  m = tibble::rownames_to_column(m, var="Perturbagen")
+  m %>% arrange(p.value)
+}) %>% Reduce(rbind, .)
+xlsx::write.xlsx(as.data.frame(tosave), 
+             paste0(OUTDIR1, "/perturbagen_candidates_OnlyStrongDrugSignatures.xlsx"),
+             col.names=TRUE, row.names=FALSE,
+             append=F)
+
+# Save the significant result to a xlsx file:
+tosave = lapply(seq_along(metas_strong$results), function(i){
+  m = metas_strong$results[[i]]
+  m$Fraction = names(metas_strong$results)[i]
+  m = tibble::rownames_to_column(m, var="Perturbagen")
+  m %>% arrange(Pooled.cor) %>% filter(adj.p.value<0.1)
+}) %>% Reduce(rbind, .)
+xlsx::write.xlsx(as.data.frame(tosave), 
+             paste0(OUTDIR1, "/perturbagen_candidates_OnlyStrongDrugSignatures_Significant.xlsx"),
+             col.names=TRUE, row.names=FALSE,
+             append=F)
+
+tosave_usedGenes = lapply(seq_along(metas_strong$genes_used), function(i){
+  m = metas_strong$genes_used[[i]]
+  m$Fraction = names(metas_strong$genes_used)[i]
+  m = tibble::rownames_to_column(m, var="Perturbagen")
+  m
+}) %>% Reduce(rbind, .)
+xlsx::write.xlsx(as.data.frame(tosave_usedGenes), 
+             paste0(OUTDIR1, "/UsedGenes4Identifying_perturbagen_candidates_OnlyStrongDrugSignatures.xlsx"),
+             col.names=TRUE, row.names=FALSE,
+             append=F)
+```
+
+
+### L1000 signature score cutoff = 0
+
+```{r}
+OUTDIR0 = paste0(OUTDIR, "/L1000SignatureScoreCutoff0/")
+dir.create(OUTDIR0, recursive = T, showWarnings = F)
+# Using all genes
+metas_strong = drugRepurposing_strong(dat.list=rslt.list, mat_all, 
+                                  signature.score.cutoff=0, OUTDIR=OUTDIR)
+saveRDS(metas_strong, paste0(OUTDIR0, "/perturbagen_candidates_OnlyStrongDrugSignature.RDS"))
+# the p-value for the test of the overall mean effect, which in a two-sided framework, tests null hypothesis that the mean effect is zero against the alternative hypothesis that it is not zer0
+# For the interpretation of the result, we need to check the *_Broad_LINCS_sig_info.txt files, to check what pert_type it is 
+  ## for trt_cp - Compound (Chemical perturbations), one may be interested to look for perturbagens with Pooled.cor<0
+
+# Save the result to a xlsx file:
+tosave = lapply(seq_along(metas_strong$results), function(i){
+  m = metas_strong$results[[i]]
+  m$Fraction = names(metas_strong$results)[i]
+  m = tibble::rownames_to_column(m, var="Perturbagen")
+  m %>% arrange(p.value)
+}) %>% Reduce(rbind, .)
+xlsx::write.xlsx(as.data.frame(tosave), 
+             paste0(OUTDIR0, "/perturbagen_candidates_OnlyStrongDrugSignatures.xlsx"),
+             col.names=TRUE, row.names=FALSE,
+             append=F)
+
+# Save the significant result to a xlsx file:
+tosave = lapply(seq_along(metas_strong$results), function(i){
+  m = metas_strong$results[[i]]
+  m$Fraction = names(metas_strong$results)[i]
+  m = tibble::rownames_to_column(m, var="Perturbagen")
+  m %>% arrange(Pooled.cor) %>% filter(adj.p.value<0.1)
+}) %>% Reduce(rbind, .)
+xlsx::write.xlsx(as.data.frame(tosave), 
+             paste0(OUTDIR0, "/perturbagen_candidates_OnlyStrongDrugSignatures_Significant.xlsx"),
+             col.names=TRUE, row.names=FALSE,
+             append=F)
+
+tosave_usedGenes = lapply(seq_along(metas_strong$genes_used), function(i){
+  m = metas_strong$genes_used[[i]]
+  m$Fraction = names(metas_strong$genes_used)[i]
+  m = tibble::rownames_to_column(m, var="Perturbagen")
+  m
+}) %>% Reduce(rbind, .)
+xlsx::write.xlsx(as.data.frame(tosave_usedGenes), 
+             paste0(OUTDIR0, "/UsedGenes4Identifying_perturbagen_candidates_OnlyStrongDrugSignatures.xlsx"),
+             col.names=TRUE, row.names=FALSE,
+             append=F)
+```
+
+
+# Session Info
+
+```{r}
+output = capture.output({
+  sessionInfo()
+})
+writeLines(output, paste0(OUTDIR, "/sessionInfo.txt"))
+
+output
+```
+
+# Deliverables
+
+# Directory
+
+## Practical info
+
+## Software
+
+# Data responsibility
+
+The responsibility for data archiving lies wscale = TRUEith the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+# Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).

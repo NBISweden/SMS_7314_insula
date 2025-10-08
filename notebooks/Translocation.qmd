@@ -1,0 +1,718 @@
+---
+title: "Subcellular proteomic analysis of the insula in alcohol dependence"
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  bookdown::html_document2:
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: false
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+params:
+  dataset: 1
+---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+
+```
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
+
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+
+**Aim for this particular notebook**: To investigate the redistribution of proteins between subcellular compartments in AUD, we computed individual protein translocation indices for (i) cytosol-to-synapse (S/C) and (ii) cytosol-to-nucleus (N/C), and (iii) synapse-to-nucleus (N/S) translocation. For each protein detected in both sets of these paired fractions, we calculated the log-transformed translocation index as the log₂ ratio of its abundance in the synaptosomal or nuclear-enriched fraction relative to its abundance in the cytosolic (for S/C and N/C) or synaptosomal (for N/S) fraction. This yielded a Synaptosomal-to-Cytosolic Translocation Index (S/C Index), a Nuclear-to-Cytosolic Translocation Index (N/C Index), and a Nuclear-to-Synaptosomal Translocation Index (N/S Index) where positive values indicate higher relative protein abundance in the synaptosomal (S/C) or nuclear-enriched (N/C and N/S) fraction, and negative values indicate cytosolic (S/C, N/C) or synaptic (S/N) enrichment. To identify proteins exhibiting significant translocation differences between AUD and UC subjects, we applied limma to compare translocation indices, considering proteins with an FDR < 0.2 as significantly redistributed in AUD. Functional enrichment analysis was performed using SynGO or KEGG and to determine biological processes associated with translocated proteins. SynGO was applied to assess synaptic localization and function for S/C-translocated proteins, while KEGG was used to examine nuclear-associated pathways for N/C- and N/S-translocated proteins. SynGO enrichment with FDR <0.05 and KEGG pathways with q-value < 0.05 were considered significant.
+
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+OUTPUT = "../results/rerun/Translocation/"
+dir.create(OUTPUT, showWarnings = FALSE, recursive = TRUE)
+```
+
+# Import normalized data
+
+```{r}
+outDir = "../results/rerun/"
+OUTDIR_QC = paste0(outDir, "/QC/")
+dataTable.list_SL_IRS_TMM =
+  readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+
+```
+
+# Calculate cellular translocation index
+
+```{r}
+getTranslocationIndex = function(dataTable.list_SL_IRS_TMM, From="CYTOSOLIC", To="SYNAPTOSOMAL") {
+  Tox = dataTable.list_SL_IRS_TMM[[To]] %>% as.data.frame() 
+  rownames(Tox) = NULL
+  Tox = Tox %>% tibble::column_to_rownames(var="Protein_IDs") 
+  Fromx = dataTable.list_SL_IRS_TMM[[From]] %>% as.data.frame() 
+  rownames(Fromx) = NULL
+  Fromx = Fromx %>% tibble::column_to_rownames(var="Protein_IDs") 
+  
+  shared_Protein_IDs = intersect(rownames(Tox), rownames(Fromx))
+  shared_cols = intersect(Tox%>%colnames(), Fromx%>%colnames()) %>% 
+    setdiff(., c("Protein_IDs", "Gene_names", "Genes"))
+  
+  SCindex = log2((Tox %>% .[shared_Protein_IDs, shared_cols])/(Fromx %>% 
+                              .[shared_Protein_IDs, shared_cols]))
+  # dim(SCindex)
+  # sum(rowSums(SCindex, na.rm = TRUE)==0)
+  # There are rows with all NA, remove those rows
+  SCindex = SCindex[rowSums(SCindex, na.rm = TRUE)!=0, ]  
+  SCindex
+}
+
+names(dataTable.list_SL_IRS_TMM)
+Pairs = list(c("CYTOSOLIC", "SYNAPTOSOMAL"), c("CYTOSOLIC", "PELLET"), 
+                                 c("SYNAPTOSOMAL", "PELLET"))
+PairNames = c("C2S", "C2N", "S2N")
+
+TranslocationIndex.list = lapply(Pairs, function(pair) {
+  getTranslocationIndex(dataTable.list_SL_IRS_TMM, From=pair[1], To=pair[2])
+}) %>% setNames(PairNames)
+
+
+all.samples = lapply(TranslocationIndex.list, function(x) {
+  colnames(x)
+}) %>% unlist() %>% unique()
+
+lapply(seq_along(TranslocationIndex.list), function(i) {
+  ti = TranslocationIndex.list[[i]]
+  if (!("133C_G2" %in% colnames(ti))) {
+    ti$`133C_G2`="NA"}
+  ti$Translocation = PairNames[i]
+  # c("Translocation", all.samples)
+  ti[, c("Translocation", all.samples)] %>%
+    tibble::rownames_to_column(var="Protein_IDs")
+}) %>% Reduce(rbind, .) %>% 
+  write.table(., paste0(OUTPUT, "/TranslocaitonIndex.csv"),
+              quote = F, row.names = F, col.names = T, sep="\t")
+
+```
+
+# PCA
+
+```{r}
+jName = "7314"
+designP = paste0("../data/design_", jName)
+design.table.list = lapply(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"), function(i) {
+  readr::read_table(paste0(designP, "/design_", i, ".tsv"))
+}) %>% setNames(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"))
+# Remove this sample from the design table as well...
+moreMeta <- tibble::tribble(
+  ~sampleID,     ~Sex,    ~Age,  ~RIN,   ~PMI,  ~Condition,   ~pH, ~TissueStorageTime_months,
+ #---------|-----------|------|-------|-------|------------|------|--------------------------|
+  "13005",      "Male",     45,    7.4,   8.48,     "case",   6.2,                   109.4,
+  "13172",      "Male",     49,    9.4,   7.32,     "case",   6.6,                    85.6,
+  "13189",    "Female",     59,    7.8,    7.5,     "case",   6.1,                    84.2,
+  "13193",      "Male",     38,    9.5,   7.78,     "case",   6.7,                    83.5,
+  "13234",    "Female",     51,    9.6,  10.12,     "case",   6.8,                    78.2,
+  "13246",      "Male",     59,    8.8,    9.5,     "case",   6.2,                    76.7,
+  "13271",      "Male",     65,    7.1,  11.97,     "case",   6.3,                    72.4,
+  "13296",      "Male",     55,    8.9,   7.68,     "case",   6.5,                    69.4,
+  "13327",      "Male",     58,    8.3,    6.7,     "case",   6.3,                    65.4,
+  "13346",      "Male",     53,    7.0,    9.3,     "case",   6.2,                    63.3,
+  "13211",      "Male",     52,    8.8,  12.33,     "case",   6.1,                    81.1,
+  "13504",      "Male",     50,    7.1,  11.25,     "case",   6.5,                    44.2,
+  "13350",      "Male",     45,    8.9,   7.08,  "control",   6.7,                    62.7,
+  "13259",      "Male",     48,    8.5,   8.25,  "control",   6.3,                    74.8,
+  "13475",    "Female",     58,    7.8,   8.75,  "control",   6.8,                    48.5,
+  "13414",      "Male",     41,    8.1,   9.85,  "control",   6.7,                    54.5,
+  "13149",    "Female",     46,    7.5,    7.6,  "control",   6.3,                    88.3,
+  "13645",      "Male",     58,    9.3,   14.4,  "control",   6.5,                    23.0,
+  "13428",      "Male",     64,    9.0,   9.22,  "control",   6.7,                    53.5,
+  "13048",      "Male",     54,    9.3,    8.4,  "control",   6.8,                   103.2,
+  "13170",      "Male",     59,    8.9,  11.65,  "control",   6.7,                    86.0,
+  "13032",      "Male",     52,    8.1,   8.97,  "control",   6.4,                   105.9,
+  "13068",      "Male",     48,    9.5,  12.78,  "control",   6.8,                   100.1,
+  "13298",      "Male",     50,    8.5,  10.67,  "control",   6.7,                    69.3,
+)
+
+design.table.list = lapply(design.table.list, function(t) {
+  t$sampleID = as.character(t$sampleID)
+  dplyr::full_join(t, moreMeta)
+})
+```
+
+
+```{r}
+library(GGally)
+makePCAplot = 
+  function(TranslocationIndex.list, design.table.list, 
+           DEGs=NULL, onlyDEGs =FALSE){
+    invisible(lapply(seq_along(TranslocationIndex.list), function(k) {
+      i = names(TranslocationIndex.list)[k]
+      if (onlyDEGs) {
+        data_matrix = TranslocationIndex.list[[i]] %>% 
+          filter(Protein_IDs %in% DEGtops[[i]]) 
+      } else {
+        data_matrix = TranslocationIndex.list[[i]]
+      }
+      sample_names = grep("_G", colnames(data_matrix), value=T)
+      rownames(data_matrix) = data_matrix$Protein_IDs
+      c_pca = prcomp(t(na.omit(data_matrix[,sample_names])), 
+                     scale=TRUE, center = TRUE)
+      frac_var = function(x) x^2/sum(x^2)
+      design = design.table.list[[k]]
+      design$Age_group = ifelse(design$Age<=45, "0-45", 
+                                ifelse(design$Age<=55, "46-55", "56-65"))
+      
+      # Add TMT label order:
+      design = as.data.frame(design)
+      rownames(design) = design$sample
+      design = design[c(grep("G1",sample_names,value=T), grep("G2",sample_names,value=T)), ]
+      design$TMTlabelOrder = c(1:length(grep("G1",sample_names,value=T)), 
+                               1:length(grep("G2",sample_names,value=T)))
+      design$TMTlabel = gsub("_G1", "", design$sample)
+      design$TMTlabel = gsub("_G2", "", design$TMTlabel)
+      
+      var_explained = c_pca$sdev %>% 
+        tibble::as_tibble() %>% 
+        frac_var() %>% 
+        round(digits = 2)
+      c_pca_all <- c_pca$x %>%
+        as.data.frame() %>%
+        tibble::rownames_to_column(var = "sample") %>%
+        dplyr::full_join(design, by = "sample") 
+      #library(GGally)
+      P1=suppressMessages(ggpairs(c_pca_all,
+                                  columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
+                                            "Condition", "Sex", "Age", "RIN", "PMI",
+                                          "TMTlabelOrder",
+                                          "TMTlabel"),
+                                  mapping=aes(color=Batch), upper=list(continuous='blank'),
+                                  main="Colored by Batch"))
+      P2=suppressMessages(ggpairs(c_pca_all,
+                                  columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
+                                            "Condition", "Sex", "Age", "RIN", "PMI",
+                                          "TMTlabelOrder",
+                                          "TMTlabel"),
+                                  mapping=aes(color=Condition), upper=list(continuous='blank'),
+                                  main="Colored by Condition"))
+      FILE = ifelse(onlyDEGs, paste0(OUTPUT, "/", i, "_PCA_plot_onDEGs.pdf"),
+                    paste0(OUTPUT, "/", i, "_PCA_plot.pdf"))
+      pdf(FILE, h=7.5, w=10)
+      print(P1)
+      print(P2)
+      
+      vars = list(c("Batch", "Condition"),
+                  c("Condition", "RIN"),
+                  c("Condition", "Sex"),
+                  c("Condition", "PMI"),
+                  c("Condition", "Age"),
+                  c("Condition", "pH"),
+                  c("Condition", "TissueStorageTime_months"))
+      
+      V = c("Batch", "Condition", "TMTlabelOrder")
+      p1_1 = ggplot(aes(PC1, PC2), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+      p1_2 = ggplot(aes(PC2, PC4), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = ""))
+      p1_3 = ggplot(aes(PC2, PC3), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+      p1_4 = ggplot(aes(PC1, PC3), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+      print(cowplot::plot_grid(p1_1, p1_2, p1_3, p1_4, ncol=2, labels=i))
+      
+      V = c("Batch", "Condition", "TMTlabel")
+      p2_1 = ggplot(aes(PC1, PC2), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+      p2_2 = ggplot(aes(PC2, PC4), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = ""))
+      p2_3 = ggplot(aes(PC2, PC3), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+      p2_4 = ggplot(aes(PC1, PC3), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+      print(cowplot::plot_grid(p2_1, p2_2, p2_3, p2_4, ncol=2, labels=i))
+      
+      lapply(vars, function(V) {
+        p3 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
+          geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+               y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+        p4 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
+          geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+               y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+        p5 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
+          geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+          labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
+               y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+        p52 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
+          geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+          labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+               y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = ""))
+        print(cowplot::plot_grid(p3, p4, p5, p52, ncol=2, labels=i))    
+      })
+      
+      invisible(dev.off())
+  }))    
+}
+
+makePCAplot(na.omit(TranslocationIndex.list), design.table.list, 
+           DEGs=NULL, onlyDEGs =FALSE)
+
+```
+
+
+# Limma differential analysis on translocaiton index
+
+```{r}
+design.table.list$CYTOSOLIC =
+  design.table.list$CYTOSOLIC %>% filter(!(sample %in% "133C_G2"))
+
+# TranslocationIndex.list$PELLET2CYTOSOLIC %>% dim()
+# do parallel model fitting
+library(future.apply)
+library(limma)
+rslt.list = lapply(seq_along(TranslocationIndex.list), function(k) {
+  i = names(TranslocationIndex.list)[k]
+  data_matrix = TranslocationIndex.list[[k]]
+  design_matrix = design.table.list[[k]]
+  shared = intersect(colnames(data_matrix), design_matrix$sample)
+  data_matrix = data_matrix[, shared]
+  design_matrix = filter(design_matrix, sample %in% shared)
+  plan(multisession)
+  models = future.apply::future_lapply(1:nrow(data_matrix),function(j){
+    # print(rownames(data_matrix)[j])
+    abundance = data_matrix[j, design_matrix$sample] %>% as.numeric()
+    tmp_data = data.frame(Sample=design_matrix$sample,
+                          abundance=as.numeric(abundance),
+                          Condition=design_matrix$Condition, 
+                          Batch=design_matrix$Batch,
+                          RIN=as.numeric(design_matrix$RIN),
+                          PMI=as.numeric(design_matrix$PMI),
+                          Age=as.numeric(design_matrix$Age))
+    tmp_data$Condition = factor(tmp_data$Condition,levels=c("control", "case"))
+    if (i %in% c("C2S", "C2N")) {
+      #print("Remove set for set specific proteins: ")
+      if(any(tapply(is.na(abundance), tmp_data$Batch, all))){
+        design = model.matrix(~0+Condition+RIN, data=tmp_data,verbose=FALSE)
+      }else{
+        design = model.matrix(~0+Condition+Batch+RIN,data=tmp_data,verbose=FALSE)
+      }      
+    } else {
+      if(any(tapply(is.na(abundance), tmp_data$Batch, all))){
+        design = model.matrix(~0+Condition, data=tmp_data,verbose=FALSE)
+      }else{
+        design = model.matrix(~0+Condition+Batch,data=tmp_data,verbose=FALSE)
+      }        
+    }
+    contrast.matrix =
+      makeContrasts(contrasts = "Conditioncase-Conditioncontrol", 
+                                                  levels = design)
+    fit = lmFit(abundance, design=design)
+    #Fit linear model for each gene
+    fit2 = contrasts.fit(fit, contrast.matrix)
+    #Given a linear model fit, compute estimated coefficients 
+    #and standard errors for a given set of contrasts.
+    fit2 = eBayes(fit2, robust=T)
+    # Given a linear model fit from lmFit, compute moderated t-statistics, 
+    #moderated F-statistic, and log-odds of differential expression by 
+    #empirical Bayes moderation of the standard errors towards a global value.
+    limma_table = topTable(fit2,
+                            coef = 1,
+                            number = Inf,
+                            sort.by = "none")
+    rownames(limma_table) = rownames(data_matrix)[j]
+    limma_table
+  })
+  
+  rslt = Reduce(rbind, models) %>% cbind(data_matrix) %>% 
+    tibble::rownames_to_column("Protein_IDs") %>%
+    # dplyr::select(Genes, everything())
+         arrange(P.Value)
+  # reset index
+  rownames(rslt) = NULL
+  rslt$adj.P.Val = p.adjust(rslt$P.Value, method = "fdr")
+  rslt
+}) %>% setNames(names(TranslocationIndex.list))
+
+# add gene names
+rslt.list = lapply(seq_along(rslt.list), function(i) {
+  mapping = dataTable.list_SL_IRS_TMM[[i]]
+  mapping = setNames(mapping$Genes, mapping$Protein_IDs)
+  rslt.list[[i]] %>% mutate(Genes = mapping[Protein_IDs]) %>%
+    select(Protein_IDs, Genes, everything()) %>%
+    arrange(-logFC)
+}) %>% setNames(names(rslt.list))
+
+# save Limma analysis result
+paste0(OUTPUT, "/Limma/") %>% dir.create(recursive = TRUE, showWarnings = FALSE)
+saveRDS(rslt.list, paste0(OUTPUT, "/Limma/Limma_results.RDS"))
+rslt.list = lapply(rslt.list, function(rslt) {
+  rslt %>% arrange(P.Value)
+})
+TableNames = list(C2S = rslt.list$C2S,
+                   C2N = rslt.list$C2N,
+                   S2N = rslt.list$S2N)
+invisible(capture.output(openxlsx::write.xlsx(TableNames, 
+             file=paste0(OUTPUT, "/Limma/Limma_results.xlsx"))))
+
+```
+
+Volcano plot
+
+```{r, fig.height=3, fig.width=3.5}
+source("../src/makeVolcanoplot.R")
+par(mfrow=c(1,1), mar=c(4,4,1,1))
+pdf(paste0(OUTPUT, "/Limma/Volcano_plots.pdf"), 
+                           width=3.5, height=3)
+lapply(seq_along(rslt.list), function(i) {
+  doVolcano(feature2show="Protein_IDs", resi=rslt.list[[i]], 
+          NAME=names(rslt.list)[i], Pcut=0.2, logFCcut=0,
+          Annotate_features=FALSE)
+})
+invisible(dev.off())
+
+```
+
+Upset plot
+
+```{r}
+source("../src/makeUpset.R")
+# library(ComplexHeatmap)
+log2FoldChange_thresh = 0
+padj_thresh = 0.2
+temp = rslt.list %>% setNames(c("C2S", "C2N", "S2N"))
+feature.list = makeUpset(rslt.list=temp, log2FoldChange_thresh, padj_thresh, 
+                         OUTDIR=paste0(OUTPUT, "/Limma/"), h=3.5, w=4)
+rm(temp)
+```
+
+
+# GSEA with SynGO
+
+```{r}
+# synGO
+library(xlsx)
+synGO = read.xlsx2("../data/SynGO_bulk_download_release_20231201/syngo_ontologies.xlsx",
+                   sheetName = "Sheet 1", header=T) #%>% filter(domain=="BP")
+syn_ref = split(synGO$hgnc_symbol, synGO$name) %>% 
+  lapply(., function(s) {
+    strsplit(s, ", ")[[1]] %>% unique()
+  })
+
+runfgsea = function(rslt.limma, Pathway.db, Pair = "SYNAPTOSOMAL2CYTOSOLIC", meta=synGO, 
+                    padj.cutoff=0.05, h_fold=0.12, w=8, OUTDIR) {
+  gene_rank = setNames(rslt.limma$logFC, rslt.limma$Genes) %>% 
+    sort(., decreasing=T) %>% .[!duplicated(names(.))]
+  library(fgsea)
+  set.seed(123)
+  fgseaRes = fgsea(pathways=Pathway.db, stats=gene_rank, minSize=5, maxSize=500) %>% 
+    arrange(padj)
+  fgseaRes$name = fgseaRes$pathway
+  fgseaRes = fgseaRes %>% left_join(meta)
+  fgseaRes$pathway = sapply(fgseaRes$pathway, function(p) {strsplit(p,"[(]")[[1]][1]})
+  fgseaRes$pathway = factor(fgseaRes$pathway, levels=rev(fgseaRes$pathway))
+  fgseaRes$leadingEdge = sapply(fgseaRes$leadingEdge, 
+       function(r) {paste0(r, collapse="/")})
+  fgseaRes4Plotting = fgseaRes %>% filter(padj<padj.cutoff) %>% arrange(-NES)
+  fgseaRes4Plotting$pathway = factor(fgseaRes4Plotting$pathway, 
+       levels=rev(fgseaRes4Plotting$pathway))
+  L = nrow(fgseaRes4Plotting)
+  P = ggplot(fgseaRes4Plotting, aes(y=pathway, x=NES)) +
+    geom_point(shape=21, aes(size=padj), fill="purple") +
+    ggtitle(paste0(Pair, ":GSEA_SynGO")) +
+    xlab("NES") +
+    ylab("") + labs(size="padj") +
+    theme_bw(base_size = 15) + 
+    scale_size(trans="reverse") +
+    guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
+    theme(strip.text.x = element_text(size = 14)) +
+    labs(caption=paste0("p.adjust <= ", padj.cutoff, " & 5<=setSize<=500"))
+  pdf(paste0(OUTDIR, "/Dotplot_enriched_", Pair, "_padj", padj.cutoff, ".pdf"), h=L*h_fold+2, w=w)
+    print(P)
+  dev.off()
+  return(list(fgseaRes=fgseaRes, fgseaRes4Plotting=fgseaRes4Plotting)) 
+}
+
+# Run fgsea using SynGO
+dir.create(paste0(OUTPUT, "/GSEA/SynGO/"), recursive=T, showWarnings = F)
+ws =  c(6.75,8,9)
+fgseaRes.list = lapply(seq_along(names(rslt.list)), function(i) {
+  Pair = names(rslt.list)[i]
+  w = ws[i]
+  rslt.limma = rslt.list[[Pair]]
+  runfgsea(rslt.limma, Pathway.db=syn_ref, Pair = Pair, 
+           meta=synGO, padj.cutoff=0.05, h_fold=0.12, w=w, 
+           OUTDIR=paste0(OUTPUT, "/GSEA/SynGO/"))
+}) %>% setNames(names(rslt.list))
+
+# save Limma analysis result
+saveRDS(fgseaRes.list, paste0(OUTPUT, "/GSEA/SynGO/GSEA_output_wSynGO.RDS"))
+TableNames = list(C2S = fgseaRes.list$C2S$fgseaRes,
+                   C2N = fgseaRes.list$C2N$fgseaRes,
+                   S2N = fgseaRes.list$S2N$fgseaRes)
+invisible(capture.output(openxlsx::write.xlsx(TableNames, 
+             file=paste0(OUTPUT, "/GSEA/SynGO/GSEA_output_wSynGO.xlsx"))))
+
+temp = lapply(seq_along(fgseaRes.list), function(i) {
+  r = fgseaRes.list[[i]]
+  r$fgseaRes4Plotting %>% mutate(Group=c("C2S", "C2N", "S2N")[i]) %>%
+    select(Group, everything())
+}) %>% Reduce(rbind, .)
+
+padj.cutoff=0.05
+h_fold=0.12
+w=12
+L = nrow(temp)
+temp$Group = factor(temp$Group, levels=c("C2S", "C2N", "S2N"))
+temp$pathway = factor(temp$pathway, levels=unique(rev(temp$pathway)))
+P = ggplot(temp, aes(y=pathway, x=NES)) +
+    geom_point(shape=21, aes(size=padj, fill=Group)) +
+    facet_wrap(~Group, nrow=1) +
+    ggtitle("GSEA_SynGO") +
+    xlab("Normalized Enrichment Score") +
+    ylab("") + labs(size="padj") +
+    theme_bw(base_size = 15) + 
+    scale_size(trans="reverse") +
+    guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
+    theme(strip.text.x = element_text(size = 14)) +
+    labs(caption=paste0("p.adjust <= ", padj.cutoff, " & 5<=setSize<=500"))
+pdf(paste0(OUTPUT, "/GSEA/SynGO/Dotplot_enriched_padj", padj.cutoff, ".pdf"), h=L*h_fold+2, w=w)
+    print(P)
+dev.off()
+rm(temp)
+gc()
+
+```
+
+# GSEA with KEGG
+
+```{r}
+# One way to retrieve KEGG pathways is to use the clusterProfiler package
+# Retrieve KEGG pathways for Homo sapiens
+# kegg_pathways = clusterProfiler::download_KEGG("hsa")
+# ALternatively, one can use the KEGGREST package
+# List KEGG pathways for Homo sapiens
+library(KEGGREST)
+kegg_list = keggList("pathway", "hsa")
+# Retrieve genes for each pathway
+if (file.exists(paste0(OUTPUT, "/GSEA/KEGG/kegg_pathways.RDS"))) {
+  kegg_pathways=readRDS(paste0(OUTPUT, "/GSEA/KEGG/kegg_pathways.RDS"))
+} else {
+  kegg_pathways = lapply(names(kegg_list), function(pid) {
+    temp = keggGet(pid)[[1]]
+    return(list(genes = temp$GENE, pathway=temp$PATHWAY_MAP))
+  })
+  saveRDS(kegg_pathways, paste0(OUTPUT, "/GSEA/KEGG/kegg_pathways.RDS")) 
+}
+
+# names(kegg_pathways) = names(kegg_list)
+pathways = sapply(kegg_pathways, function(p) {
+  p$pathway
+})
+kegg_pathways2 = lapply(kegg_pathways, function(k) {
+  k = k$genes
+  if(length(k)>0) {
+  grep(";", k, value=T) %>% sub(";.*", "", .)
+  } else {NA}}) %>% setNames(pathways%>%as.character())
+kegg_pathways2 = kegg_pathways2[!is.na(kegg_pathways2)]
+# pid = "hsa00010"
+# keggGet(pid)[[1]]$COMPOUND
+kegg.db = data.frame(pathway = as.character(pathways),
+                     kegg.ID = names(pathways))
+dir.create(paste0(OUTPUT, "/GSEA/KEGG/"), recursive=T, showWarnings = F)
+
+
+
+padj.cutoff=0.05
+ws =  c(7.5,9,8)
+KEGG.fgseaRes.list = lapply(seq_along(names(rslt.list)), function(i) {
+  Pair = names(rslt.list)[i]
+  w = ws[i]
+  rslt.limma = rslt.list[[Pair]]
+  set.seed(123)
+  runfgsea(rslt.limma, Pathway.db=kegg_pathways2, 
+           Pair = Pair, meta=kegg.db, padj.cutoff=padj.cutoff, h_fold=0.15, w=w, 
+           OUTDIR=paste0(OUTPUT, "/GSEA/KEGG/"))
+}) %>% setNames(names(rslt.list))
+# Combine KEGG results from C2N and S2N together and make one single dotplot:
+temp = lapply(seq_along(KEGG.fgseaRes.list), function(i) {
+  r = KEGG.fgseaRes.list[[i]]$fgseaRes4Plotting %>% arrange(-NES)
+  r = r %>% mutate(Group=c("C2S", "C2N", "S2N")[i]) %>%
+    select(Group, everything())
+  filter(r, Group %in% c("C2N", "S2N"))
+}) %>% Reduce(rbind, .)
+padj.cutoff=0.05
+h_fold=0.12
+w=11
+L = nrow(temp)
+temp$Group = factor(temp$Group, levels=c("C2N", "S2N"))
+temp$pathway = factor(temp$pathway, levels=unique(rev(temp$pathway)))
+P = ggplot(temp, aes(y=pathway, x=NES)) +
+    geom_point(shape=21, aes(size=padj, fill=Group)) +
+    facet_wrap(~Group, nrow=1) +
+    ggtitle("GSEA_KEGG") +
+    xlab("Normalized Enrichment Score") +
+    ylab("") + labs(size="padj") +
+    theme_bw(base_size = 15) + 
+    scale_size(trans="reverse") +
+    guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
+    theme(strip.text.x = element_text(size = 14)) +
+    labs(caption=paste0("p.adjust <= ", padj.cutoff, " & 5<=setSize<=500"))
+pdf(paste0(OUTPUT, "/GSEA/KEGG/Dotplot_enriched_padj", padj.cutoff, ".pdf"), h=L*h_fold+2, w=w)
+    print(P)
+dev.off()
+
+
+
+
+
+padj.cutoff=0.01
+ws =  c(7.5,9,8)
+KEGG.fgseaRes.list = lapply(seq_along(names(rslt.list)), function(i) {
+  Pair = names(rslt.list)[i]
+  w = ws[i]
+  rslt.limma = rslt.list[[Pair]]
+  set.seed(123)
+  runfgsea(rslt.limma, Pathway.db=kegg_pathways2, 
+           Pair = Pair, meta=kegg.db, padj.cutoff=padj.cutoff, h_fold=0.15, w=w, 
+           OUTDIR=paste0(OUTPUT, "/GSEA/KEGG/"))
+}) %>% setNames(names(rslt.list))
+
+# Combine KEGG results from C2N and S2N together and make one single dotplot:
+temp = lapply(seq_along(KEGG.fgseaRes.list), function(i) {
+  r = KEGG.fgseaRes.list[[i]]$fgseaRes4Plotting %>% arrange(-NES)
+  r = r %>% mutate(Group=c("C2S", "C2N", "S2N")[i]) %>%
+    select(Group, everything())
+  filter(r, Group %in% c("C2N", "S2N"))
+}) %>% Reduce(rbind, .)
+padj.cutoff=0.01
+h_fold=0.13
+w=11
+L = nrow(temp)
+temp$Group = factor(temp$Group, levels=c("C2N", "S2N"))
+temp$pathway = factor(temp$pathway, levels=unique(rev(temp$pathway)))
+P = ggplot(temp, aes(y=pathway, x=NES)) +
+    geom_point(shape=21, aes(size=padj, fill=Group)) +
+    facet_wrap(~Group, nrow=1) +
+    ggtitle("GSEA_KEGG") +
+    xlab("Normalized Enrichment Score") +
+    ylab("") + labs(size="padj") +
+    theme_bw(base_size = 15) + 
+    scale_size(trans="reverse") +
+    guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
+    theme(strip.text.x = element_text(size = 14)) +
+    labs(caption=paste0("p.adjust <= ", padj.cutoff, " & 5<=setSize<=500"))
+pdf(paste0(OUTPUT, "/GSEA/KEGG/Dotplot_enriched_padj", padj.cutoff, ".pdf"), h=L*h_fold+2, w=w)
+    print(P)
+dev.off()
+
+
+# save Limma analysis result
+saveRDS(KEGG.fgseaRes.list, paste0(OUTPUT, "/GSEA/KEGG/GSEA_output.RDS"))
+TableNames = list(
+                   C2N = KEGG.fgseaRes.list$C2N$fgseaRes,
+                   S2N = KEGG.fgseaRes.list$S2N$fgseaRes)
+invisible(capture.output(openxlsx::write.xlsx(TableNames, 
+             file=paste0(OUTPUT, "/GSEA/KEGG/GSEA_output.xlsx"))))
+
+```
+
+
+
+
+# Session Info
+
+```{r}
+output = capture.output({
+  sessionInfo()
+})
+writeLines(output, paste0(OUTPUT, "/sessionInfo.txt"))
+```
+
+# Method summary
+
+# Deliverables
+
+# Directory
+
+## Practical info
+
+## Software
+
+# Data responsibility
+
+The responsibility for data archiving lies wscale = TRUEith the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+# Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).

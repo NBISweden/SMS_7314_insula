@@ -1,0 +1,333 @@
+---
+title: "Subcellular proteomic analysis of the insula in alcohol dependence"
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  bookdown::html_document2:
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: false
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+params:
+  dataset: 1
+---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+
+```
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
+
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+
+Aim: Check the cellular components of each components
+
+**pellet =  insoluble = nuclear**
+
+# Import the data and preparation
+
+```{r}
+suppressPackageStartupMessages({
+  # library(mixOmics) # import the mixOmics library
+  library(dplyr)
+  library(tidyverse)
+  library(ggplot2)
+  library(xlsx)
+  library(igraph)
+  library(cowplot)
+  library(purrr)
+  library("glmnet")
+})
+
+suppressPackageStartupMessages({
+  # library(mixOmics) # import the mixOmics library
+  library(dplyr)
+  library(ggplot2)
+  library(purrr)
+  library(tibble)
+})
+set.seed(123) # for reproducibility, remove for normal use
+```
+
+```{r}
+OUTDIR = "../results/rerun/PathwayAnalysis/ORA_GO_C/"
+dir.create(OUTDIR, recursive = T, showWarnings = F)
+```
+
+```{r}
+# Import indepdent variable Y
+meta = read.table("../data/design_7314/design_CYTOSOLIC.tsv", header=T) %>%
+  filter(., sample!="133C_G2") # "133C_G2" was removed as an outlier in CYTOSOLIC.
+  #mutate(sample=substr(sample, 1,4))
+#head(meta)
+Y = meta$Condition %>% factor(., levels=c("control", "case"))
+
+# Import normalized intensity tables for all cellular compartments together
+normData = 
+  readRDS("../results/rerun/QC/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS")
+protein.list = lapply(normData, function(n) {
+  X = n %>% dplyr::select(-c(Genes, Gene_names)) %>%
+    as.data.frame()
+  rownames(X) = NULL
+  X = X %>% column_to_rownames(var="Protein_IDs") %>% t()
+  # rownames(X) = substr(rownames(X), 1,4)
+  colnames(X)
+  #colSums(X) %>% .[order(., decreasing=T)] %>% .[1:1000] %>% names()
+}) %>% setNames(c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL"))
+
+unique.protein.list = list(setdiff(protein.list[[1]], union(protein.list[[2]], protein.list[[3]])),
+     setdiff(protein.list[[2]], union(protein.list[[1]], protein.list[[3]])),
+     setdiff(protein.list[[3]], union(protein.list[[1]], protein.list[[2]]))) %>% 
+  setNames(c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL"))
+
+
+names(protein.list)
+lapply(protein.list, function(i) length(i))
+lapply(unique.protein.list, function(i) length(i))
+```
+
+## All protein GO analysis (overrepresentation)
+
+```{r, fig.width=10, fig.height=7, message=FALSE, warning=FALSE}
+library(clusterProfiler)
+library(org.Hs.eg.db)
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+rslt.list = lapply(compartments, function(i) {
+  readxl::read_excel(
+    paste0("../results/rerun/DifferentialAnalysis/Differential_Table_",i,".xlsx"), 
+                  sheet=1, col_names=TRUE, na="", skip=0)
+}) %>% setNames(compartments)
+
+universe = rslt.list %>% lapply(.,function(x) {x[,c("Protein_IDs", "Genes")]}) %>% 
+  Reduce(rbind,.) %>% unique() %>% pull(Genes) %>% unique()
+
+CC.list = lapply(seq_along(protein.list), function(i) {
+  d = protein.list[[i]]
+  genes = rslt.list[[i]][rslt.list[[i]]$Protein_IDs %in%d, "Genes", drop=T]
+  ego = enrichGO(gene        = genes,
+                OrgDb         = org.Hs.eg.db,
+                ont           = "CC",
+                pAdjustMethod = "BH",
+                keyType       = 'SYMBOL',
+                pvalueCutoff  = 1,
+                qvalueCutoff  = 1,
+                universe = universe)
+  ego 
+})
+
+names = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
+combined = lapply(seq_along(CC.list), function(i) {
+  c = CC.list[[i]]
+  d = c@result[c@result$p.adjust<0.05,] %>% as.data.frame() %>%
+    mutate(Fraction=names[i])
+  keep = min(25, nrow(d))
+  d[1:keep, ] %>% arrange(-Count)
+}) %>% Reduce(rbind, .) #%>% arrange(Count)
+
+combined$Description = factor(combined$Description, 
+      levels = rev(unique(combined$Description)))
+pdf(paste0(OUTDIR, "/GO_C_allProteins.pdf"), h=12.5, w=11.5)
+ggplot(combined, aes(x=Count,y=Description,size=qvalue)) +
+  geom_point(shape=21, aes(size=p.adjust, fill=Fraction)) +
+  facet_wrap(~Fraction, ncol=3) +
+  scale_size(trans="reverse") +
+  scale_fill_manual(values=c("darkred", "#6D6D6D", "darkgreen")) +
+  ggtitle("All proteins") + 
+  theme_bw(base_size = 15) +
+  theme(
+    axis.ticks=element_blank(),
+    strip.text.x = element_text(size = 12))
+dev.off()
+
+```
+
+
+## Insoluable proteins shared with Cytosolic and Synapsomal fractions (overrepresentation)
+
+```{r, fig.width=10, fig.height=10, message=FALSE, warning=FALSE}
+library(clusterProfiler)
+library(org.Hs.eg.db)
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+rslt.list = lapply(compartments, function(i) {
+  readxl::read_excel(
+    paste0("../results/rerun/DifferentialAnalysis/Differential_Table_",i,".xlsx"), 
+                  sheet=1, col_names=TRUE, na="", skip=0)
+}) %>% setNames(compartments)
+
+S = setdiff(protein.list[[2]], unique.protein.list[[2]])
+
+genes = rslt.list[[2]][rslt.list[[2]]$Protein_IDs %in%S, "Genes", drop=T]
+ego <- enrichGO(gene        = genes,
+                OrgDb         = org.Hs.eg.db,
+                ont           = "CC",
+                pAdjustMethod = "BH",
+                keyType       = 'SYMBOL',
+                pvalueCutoff  = 1,
+                qvalueCutoff  = 1,
+                universe = universe)
+
+grep("Spliceosome", ego@result$Description)
+# integer(0)
+# Write the table to an excel file:
+ego@result = arrange(ego@result, -Count)
+ego@result$Description = factor(ego@result$Description, 
+      levels = rev(unique(ego@result$Description)))
+pdf(paste0(OUTDIR, "/GO_C_sharedProteins_Nuclear.pdf"), h=12, w=7)
+ggplot(ego@result[1:60,], aes(x=Count,y=Description,size=qvalue)) +
+  geom_point(shape=21, aes(size=qvalue), fill="#B32B16") +
+  #facet_wrap(~Fraction, ncol=3) +
+  scale_size(trans="reverse") +
+  scale_fill_continuous(type = "viridis") +
+  ggtitle("Shared proteins_Nuclear") + 
+  theme_bw(base_size = 15) +
+  theme(
+    axis.ticks=element_blank(),
+    strip.text.x = element_text(size = 14))
+dev.off()
+
+```
+
+
+
+## Unique protein GO analysis (overrepresentation)
+
+```{r, fig.width=10, fig.height=10, message=FALSE, warning=FALSE}
+library(clusterProfiler)
+library(org.Hs.eg.db)
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+compartments_new = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
+rslt.list = lapply(compartments, function(i) {
+  readxl::read_excel(
+    paste0("../results/rerun/DifferentialAnalysis/Differential_Table_",i,".xlsx"), 
+                  sheet=1, col_names=TRUE, na="", skip=0)
+}) %>% setNames(compartments_new)
+
+CC.list = lapply(seq_along(unique.protein.list), function(i) {
+  d = unique.protein.list[[i]]
+  genes = rslt.list[[i]][rslt.list[[i]]$Protein_IDs %in%d, "Genes", drop=T]
+  ego <- enrichGO(gene        = genes,
+                OrgDb         = org.Hs.eg.db,
+                ont           = "CC",
+                pAdjustMethod = "BH",
+                keyType       = 'SYMBOL',
+                pvalueCutoff  = 1,
+                qvalueCutoff  = 1,
+                universe = universe)
+  ego 
+})
+
+library(xlsx)
+lapply(seq_along(CC.list), function(i) {
+  c = CC.list[[i]]
+  options(java.parameters = "-Xmx3000m")
+  write.xlsx(as.data.frame(c@result), 
+             paste0(OUTDIR, "GO_CC.xlsx"),
+             sheetName = compartments_new[i],
+             col.names=TRUE, row.names=FALSE,
+             append=T)
+})
+
+combined = lapply(seq_along(CC.list), function(i) {
+  c = CC.list[[i]]
+  d = c@result[c@result$qvalue<0.05,] %>% mutate(Fraction=names[i])
+  keep = min(20, nrow(d))
+  d[1:keep, ]
+}) %>% Reduce(rbind, .)
+
+combined$Description = factor(combined$Description, 
+      levels = rev(unique(combined$Description)))
+pdf(paste0(OUTDIR, "/GO_C_uniqueProteins.pdf"), h=10.5, w=11.5)
+ggplot(combined, aes(x=Count,y=Description,size=qvalue)) +
+  geom_point(shape=21, aes(size=qvalue, fill=Fraction)) +
+  facet_wrap(~Fraction, ncol=3) +
+  scale_size(trans="reverse") +
+  scale_fill_manual(values=c("darkred", "#6D6D6D", "darkgreen")) +
+  ggtitle("Only unique proteins") + 
+  theme_bw(base_size = 15) +
+  theme(
+    axis.ticks=element_blank(),
+    strip.text.x = element_text(size = 12))
+dev.off()
+
+```
+
+# Session Info
+
+```{r}
+
+sink(paste0(OUTDIR, "sessionInfo.txt"))
+print(sessionInfo())
+sink()
+```
+
+# Deliverables
+
+# Directory
+
+## Practical info
+
+## Software
+
+# Data responsibility
+
+The responsibility for data archiving lies wscale = TRUEith the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+# Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).
