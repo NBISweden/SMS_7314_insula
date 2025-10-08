@@ -64,11 +64,10 @@ The data has already been filtered by the company (e.g. removed proteins with CO
 
 Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
 
-**Aim for this particular notebook**: Here, we will use DIABLO to select the most confident markers for separating alcoholism from control. DIABLO will fit a supervised regression model that uses the predictor dataset Xi (i.e. CYTOSOLIC, PELLET, SYNAPTOSOMAL) to predict the response dataset Y (alcoholism & control in our case). In details, it will construct a set of latent components for each predictor dataset Xi, where the components are linear combination of the most important features for maximizing the covariance between the predictor datasets Xi and the response dataset Y, i.e. the categories of Y can be best separated if Y is categorical. As you can see, this method is a good marker identification method.
+**Aim**: run plsDA for each cellular compartment, and see if we can separate the case and control samples.
 
-DIABLO, stands for Data Integration Analysis for Biomarker discovery using Latent cOmponents, it is a mult-omics method that simultaneously identifies key omics variables during the integration process and discriminates phenotypic groups. DIABLO maximizes the common or correlated information between mulitple datasets, i.e. it also accounts for interactions (reflected by the design matrix strengths) between different datasets.
+**Pellet = Insoluble = Nuclear**
 
-**DIABLO is multiblock sPLS-DA method for integrating different datasets from the same samples, while sPLS-DA enables the selection of the most predictive or discriminative features in the data to classify the samples [https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-12-253], with the price of losing some relatively weak signals. So here, we will run pls-DA on each sample separately instead to look for more features, and before that we will use Lasso to select features separately for each dataset first, then feed those selected features into pls-DA analysis**
 
 # Import the data and preparation
 
@@ -88,7 +87,7 @@ set.seed(123) # for reproducibility, remove for normal use
 ```
 
 ```{r}
-OUTDIR = "../results/rerun/Integration/plsDA/"
+OUTDIR = "../results/rerun/plsDA/"
 dir.create(OUTDIR, recursive = T, showWarnings = F)
 ```
 
@@ -117,31 +116,7 @@ data.list = lapply(normData, function(n) {
 # In each dataset: samples x proteins:
 ```
 
-Here, we will skip centering etc because DIABLO is going to do that for us.
-
-# Feature selection using ElasticNet
-
-```{r}
-data.list = lapply(names(data.list), function(i) {
-  set.seed(123)
-  elnet_fit <- cv.glmnet(data.list[[i]], Y, family="binomial", alpha=0)
-  # 𝜆 is called a Lagrange multiplier, and is a measure of how much penalty we would like to put on our Linear Regression Model, 
-  # its optimal value is usually found through K-fold cross-validation
-  # plot(elnet_fit)
-  coef <- predict(elnet_fit, s = "lambda.min", type = "nonzero")
-  # colnames(data.list[[i]])[unlist(coef)]
-  result_expr <- data.frame(GENE = names(as.matrix(coef(elnet_fit, s = "lambda.min"))
-                                         [as.matrix(coef(elnet_fit, s = "lambda.min"))[,1]!=0, 1])[-1], 
-                            SCORE = as.numeric(as.matrix(coef(elnet_fit, s = "lambda.min"))
-                                               [as.matrix(coef(elnet_fit, 
-                                                               s = "lambda.min"))[,1]!=0, 1])[-1])
-  result_expr <- result_expr[order(-abs(result_expr$SCORE)),]
-  #print(result_expr)
-  data.list[[i]][, result_expr$GENE]  
-}) %>% setNames(data.list%>%names())
-
-lapply(data.list, function(o) dim(o))
-```
+Here, we will skip centering etc because plsda is going to do that for us.
 
 
 # Modelling
@@ -149,8 +124,9 @@ lapply(data.list, function(o) dim(o))
 ## Build a function for hyperparameter tuning
 
 ```{r}
-runPlsDA = function(data, Y, folds, nrepeat, OUTDIR, i) {
+runPlsDA = function(data, Y, folds, nrepeat, OUTDIR, i, sample) {
   ## Construct the original model
+  set.seed(123)
   plsda.model = plsda(X=data, Y=Y, ncomp=10)
   
   ## Tuning number of components
@@ -162,7 +138,9 @@ runPlsDA = function(data, Y, folds, nrepeat, OUTDIR, i) {
 
   # pdf(paste0(OUTDIR, "/Tune_component_numberpre.pdf"), h=5, w=6)
   par(mfrow=c(1, 1))
-  compPlot = plot(perf.plsda.model, sd = TRUE, legend.position = 'horizontal')
+  set.seed(123)
+  compPlot = plot(perf.plsda.model, sd = TRUE, legend.position = 'horizontal',
+                  main = sample)
   # invisible(dev.off())
   ncomp = perf.plsda.model$choice.ncomp["BER", "centroids.dist"]
   ncomp = max(2, ncomp)
@@ -171,9 +149,10 @@ runPlsDA = function(data, Y, folds, nrepeat, OUTDIR, i) {
   final.plsda.model = plsda(X=data,Y=Y, ncomp = ncomp)
   ## Plotting
   # pdf(paste0(OUTDIR_tune, "/plotIndiv.pdf"), h=7, w=8)
+  set.seed(123)
   plsPlot = plotIndiv(final.plsda.model, ind.names = FALSE, legend=TRUE,
           comp=c(1,2), ellipse = FALSE,
-          title = 'PLS-DA on comp 1-2',
+          title = paste0(sample, ''),
           X.label = 'PLS-DA comp 1', Y.label = 'PLS-DA comp 2')
   # invisible(dev.off())
   
@@ -183,11 +162,13 @@ runPlsDA = function(data, Y, folds, nrepeat, OUTDIR, i) {
   perf.plsda = perf(final.plsda.model, validation = 'Mfold',
                      M = folds, nrepeat = nrepeat,
                      dist = 'centroids.dist')
+  set.seed(123)
   background.max <- background.predict(final.plsda.model,
                                      comp.predicted = 2,
                                      dist = 'centroids.dist')
+  set.seed(123)
   backgroundPlot = plotIndiv(final.plsda.model, comp = 1:2, group = Y,
-          ind.names = FALSE, title = 'centroids.dist',
+          ind.names = FALSE, title = paste0(sample, ''),
           legend = TRUE,  background = background.max)
   
   return(list(final.plsda.model=final.plsda.model, perf.plsda=perf.plsda, 
@@ -201,10 +182,12 @@ runPlsDA = function(data, Y, folds, nrepeat, OUTDIR, i) {
 folds = 3 # K in K-fold cross validation
 nrepeat = 40
 compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+names = c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL")
 pdf(paste0(OUTDIR, "/plsDA_modeling_plots.pdf"), h=4, w=5)
 rslt.list = lapply(seq_along(data.list), function(i) {
   data = data.list[[i]]
-  runPlsDA(data, Y, folds, nrepeat, OUTDIR, i) 
+  sample = names[i]
+  runPlsDA(data, Y, folds, nrepeat, OUTDIR, i, sample) 
 }) %>% setNames(compartments)
 dev.off()
 
@@ -215,6 +198,7 @@ final.models = lapply(rslt.list, function(r) {
 })
 
 saveRDS(final.models, paste0(OUTDIR, "final_models.RDS"))
+# final.models = readRDS(paste0(OUTDIR, "final_models.RDS"))
 
 sink(paste0(OUTDIR, "final_BER.txt"))
 for (r in names(rslt.list)) {
@@ -223,10 +207,11 @@ for (r in names(rslt.list)) {
 }
 sink()
 
-names = c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL")
+names = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
 loadings = lapply(seq_along(final.models), function(f) {
   final.models[[f]]$loadings$X %>% as.data.frame() %>% 
-    mutate(fraction=names[f]) %>% rownames_to_column(var="Protein")
+    mutate(fraction=names[f]) %>% 
+    tibble::rownames_to_column(var="Protein")
 }) %>% Reduce(rbind, .)
 
 write.xlsx(loadings, 
@@ -236,7 +221,7 @@ write.xlsx(loadings,
 ```
 
 
-## top features (|feature loadings|>0.035) VS differential proteins : upset plot
+## Top features (|feature loadings|>0.035 with correct logFC direction information) VS differential proteins: upset plot
 
 ```{r}
 library(readxl)
@@ -247,12 +232,13 @@ rslt.list = lapply(compartments, function(i) {
                   sheet=1, col_names=TRUE, na="", skip=0)
 }) %>% setNames(compartments)
 library(ComplexHeatmap)
+loading_cutoff = 0.035
 makeUpset = function(log2FoldChange_thresh, padj_thresh) {
   protein.list = lapply(names(rslt.list), function(i) {
     up = as.data.frame(rslt.list[[i]]) %>% 
       filter(logFC>log2FoldChange_thresh&adj.P.Val<padj_thresh)
     down = as.data.frame(rslt.list[[i]]) %>% 
-      filter(logFC<log2FoldChange_thresh&adj.P.Val<padj_thresh)
+      filter(logFC< -log2FoldChange_thresh&adj.P.Val<padj_thresh)
     list(up$Protein_IDs, down$Protein_IDs)
   })  %>% setNames(names(rslt.list))
   
@@ -264,41 +250,68 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh) {
     list(up=up$Protein_IDs, down=down$Protein_IDs)
   })  %>% setNames(names(rslt.list))
   
-  compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
-  plsDA.features = lapply(compartments, function(i) { 
-    up1 = final.models[[i]]$loadings$X[, "comp1"] %>%
-      .[.> 0.035] %>% names()
-    up2 = final.models[[i]]$loadings$X[, "comp2"] %>%
-      .[.> 0.035] %>% names()
-    up = c(up1, up2)
-    down1 = final.models[[i]]$loadings$X[, "comp1"] %>%
-      .[.< -0.035] %>% names()
-    down2 = final.models[[i]]$loadings$X[, "comp2"] %>%
-      .[.< -0.035] %>% names()
-    down = c(down1, down2)
-    list(up, down)
-  })
   
+  i = 1
+  up1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+    .[.> loading_cutoff] %>% names()
+  up2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+    .[.< -loading_cutoff] %>% names()
+  up = c(up1, up2) %>% intersect(dir.list[[i]]$up)
+  down1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+    .[.< -loading_cutoff] %>% names()
+  down2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+    .[.> loading_cutoff] %>% names()
+  down = c(down1, down2) %>% intersect(dir.list[[i]]$down)
+  C = list(up, down) 
+    
+  i = 2
+  up1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+    .[.< -loading_cutoff] %>% names()
+  up2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+    .[.> loading_cutoff] %>% names()
+  up = c(up1, up2) %>% intersect(dir.list[[i]]$up)
+  down1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+    .[.> loading_cutoff] %>% names()
+  down2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+    .[.< -loading_cutoff] %>% names()
+  down = c(down1, down2) %>% intersect(dir.list[[i]]$down)
+  I = list(up, down)
+  
+  i = 3
+  up1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+    .[.< -loading_cutoff] %>% names()
+  up2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+    .[.< -loading_cutoff] %>% names()
+  up = c(up1, up2) %>% intersect(dir.list[[i]]$up)
+  down1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+    .[.> loading_cutoff] %>% names()
+  down2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+    .[.> loading_cutoff] %>% names()
+  down = c(down1, down2) %>% intersect(dir.list[[i]]$down)
+  S =list(up, down)
+  
+  plsDA.features = list(C, I, S) %>% setNames(names(rslt.list))
+  compartments_new = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
   protein.list_UP = c(protein.list[[1]][1], protein.list[[2]][1], 
                       protein.list[[3]][1], plsDA.features[[1]][1],
                       plsDA.features[[2]][1],
                       plsDA.features[[3]][1]) %>% 
-    setNames(c(paste0(names(protein.list)[1], "_UP_sig"), 
-               paste0(names(protein.list)[2], "_UP_sig"), 
-               paste0(names(protein.list)[3], "_UP_sig"),
-               paste0(names(protein.list)[1], "_UP_plsDA"), 
-               paste0(names(protein.list)[2], "_UP_plsDA"), 
-               paste0(names(protein.list)[3], "_UP_plsDA")))
+    setNames(c(paste0(compartments_new[1], "_UP_Limma"), 
+               paste0(compartments_new[2], "_UP_Limma"), 
+               paste0(compartments_new[3], "_UP_Limma"),
+               paste0(compartments_new[1], "_UP_plsDA"), 
+               paste0(compartments_new[2], "_UP_plsDA"), 
+               paste0(compartments_new[3], "_UP_plsDA")))
   protein.list_DOWN = c(protein.list[[1]][2], protein.list[[2]][2], 
                         protein.list[[3]][2], plsDA.features[[1]][2],
                       plsDA.features[[2]][2],
                       plsDA.features[[3]][2]) %>% 
-    setNames(c(paste0(names(protein.list)[1], "_DN_sig"), 
-               paste0(names(protein.list)[2], "_DN_sig"), 
-               paste0(names(protein.list)[3], "_DN_sig"),
+    setNames(c(paste0(compartments_new[1], "_DN_Limma"), 
+               paste0(compartments_new[2], "_DN_Limma"), 
+               paste0(compartments_new[3], "_DN_Limma"),
                paste0(names(protein.list)[1], "_DN_plsDA"), 
-               paste0(names(protein.list)[2], "_DN_plsDA"), 
-               paste0(names(protein.list)[3], "_DN_plsDA")))
+               paste0(compartments_new[2], "_DN_plsDA"), 
+               paste0(compartments_new[3], "_DN_plsDA")))
   
   # library(ComplexHeatmap)
   pdf(paste0(OUTDIR, "/Sig.Diff._plsDA_top_proteins_upset.pdf"), h=4, w=7)
@@ -307,138 +320,426 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh) {
         top_annotation = upset_top_annotation(m, add_numbers = TRUE),
         right_annotation = upset_right_annotation(m, add_numbers = TRUE),
         comb_order = rev(order(comb_size(m))),
-        set_order = c(paste0(names(protein.list)[1], "_UP_sig"), 
-                      paste0(names(protein.list)[2], "_UP_sig"), 
-                      paste0(names(protein.list)[3], "_UP_sig"),
-                      paste0(names(protein.list)[1], "_UP_plsDA"), 
-                      paste0(names(protein.list)[2], "_UP_plsDA"), 
-                      paste0(names(protein.list)[3], "_UP_plsDA"),
-                      paste0(names(protein.list)[1], "_DN_sig"), 
-                      paste0(names(protein.list)[2], "_DN_sig"), 
-                      paste0(names(protein.list)[3], "_DN_sig"),
-                      paste0(names(protein.list)[1], "_DN_plsDA"), 
-                      paste0(names(protein.list)[2], "_DN_plsDA"), 
-                      paste0(names(protein.list)[3], "_DN_plsDA")),
+        set_order = c(paste0(compartments_new[1], "_UP_Limma"), 
+                      paste0(compartments_new[2], "_UP_Limma"), 
+                      paste0(compartments_new[3], "_UP_Limma"),
+                      paste0(compartments_new[1], "_UP_plsDA"), 
+                      paste0(compartments_new[2], "_UP_plsDA"), 
+                      paste0(compartments_new[3], "_UP_plsDA"),
+                      paste0(compartments_new[1], "_DN_Limma"), 
+                      paste0(compartments_new[2], "_DN_Limma"), 
+                      paste0(compartments_new[3], "_DN_Limma"),
+                      paste0(compartments_new[1], "_DN_plsDA"), 
+                      paste0(compartments_new[2], "_DN_plsDA"), 
+                      paste0(compartments_new[3], "_DN_plsDA")),
         column_title = paste0("")))
   invisible(dev.off())
   return(list(protein.list_UP=protein.list_UP, protein.list_DOWN=protein.list_DOWN, dir.list=dir.list))
 }
 
-log2FoldChange_thresh = 0
+log2FoldChange_thresh = 0.3
 padj_thresh = 0.2
 protein.list = makeUpset(log2FoldChange_thresh, padj_thresh)
-
+saveRDS(protein.list, paste0(OUTDIR, "/Protein.list.RDS"))
 ```
 
 
 # Functional pathway analysis
 
-* Here, we combine top (feature loading on each component > 0.035) up regulated proteins (in Alcoholism, logFC>0) from all three compartments for both components, and performed ORA analysis to look for KEGG pathways that those up-regulated proteins enriched in. 
+* Here, we combine top (feature loading on each component > 0.035/< -0.035) up regulated proteins (in Alcoholism, logFC>0) from all three compartments for both components, and performed ORA analysis to look for KEGG pathways that those up-regulated proteins enriched in. 
 
-* Meanwhile, we also combine top (feature loading on each component < -0.035) down regulated proteins (in Alcoholism, logFC<0) from all three compartments for both components, and performed ORA analysis to look for KEGG pathways that those down-regulated proteins enriched in. 
+* Meanwhile, we also combine top (feature loading on each component < -0.035/< -0.035) down regulated proteins (in Alcoholism, logFC<0) from all three compartments for both components, and performed ORA analysis to look for KEGG pathways that those down-regulated proteins enriched in. 
 
 ```{r, message=FALSE, warning=FALSE}
+# final.models = readRDS(paste0(OUTDIR, "final_models.RDS"))
 compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
-names = c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL")
+names = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
+loading_cutoff = 0.035
 library(org.Hs.eg.db)
+i = 1
+up1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+  .[.> loading_cutoff] %>% names()
+up2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+  .[.< -loading_cutoff] %>% names()
+C = merge(final.models[[i]]$loadings$X[up1,"comp1",drop=F] %>% as.data.frame(), 
+              final.models[[i]]$loadings$X[up2,"comp2",drop=F] %>% as.data.frame(),
+          by=0, all=TRUE) %>% column_to_rownames(var="Row.names")
+
+i = 2
+up1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+  .[.< -loading_cutoff] %>% names()
+up2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+  .[.> loading_cutoff] %>% names()
+I = merge(final.models[[i]]$loadings$X[up1,"comp1",drop=F] %>% as.data.frame(), 
+              final.models[[i]]$loadings$X[up2,"comp2",drop=F] %>% as.data.frame(),
+          by=0, all=TRUE) %>% column_to_rownames(var="Row.names")
+
+i = 3
+up1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+  .[.< -loading_cutoff] %>% names()
+up2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+  .[.< -loading_cutoff] %>% names()
+S = merge(final.models[[i]]$loadings$X[up1,"comp1",drop=F] %>% as.data.frame(), 
+              final.models[[i]]$loadings$X[up2,"comp2",drop=F] %>% as.data.frame(),
+          by=0, all=TRUE) %>% column_to_rownames(var="Row.names")
+  
+up = list(C,I,S)
 up = lapply(seq_along(compartments), function(i) {
-  top = final.models[[i]]$loadings$X[(final.models[[i]]$loadings$X>0.035)%>% 
-                                 rowSums() >0, ]
-  top[intersect(rownames(top),protein.list$dir.list[[i]][[1]]),] %>%
+  top = up[[i]]
+  top[intersect(rownames(top),protein.list$dir.list[[i]][[1]]),,drop=F] %>%
     as.data.frame() %>% mutate("Reg"="up", "Fraction"=names[i])
 }) %>% setNames(compartments)
 # Combine the DEG result together to get all the protein_IDs and genes
 all = Reduce(full_join, rslt.list)
 # dim(all)
 up.genes = all[all$Protein_IDs%in%(Reduce(rbind, up) %>% 
-                 rownames() %>% unique()), "Genes", drop=T] %>%
-  unique() %>% mapIds(org.Hs.eg.db, keys = ., 
+                rownames() %>% unique()), "Genes", drop=T] %>%
+                unique() %>% mapIds(org.Hs.eg.db, keys = ., 
                 column = "ENTREZID", keytype = "SYMBOL", 
                 multiVals = "first")
+i = 1
+up.genes_Cytosolic = all[all$Protein_IDs%in%(up[[i]] %>% 
+                rownames() %>% unique()), "Genes", drop=T] %>%
+                unique() %>% 
+                mapIds(org.Hs.eg.db, keys = ., 
+                column = "ENTREZID", keytype = "SYMBOL", 
+                multiVals = "first")
+i = 2
+up.genes_Insoluble = all[all$Protein_IDs%in%(up[[i]] %>% 
+                rownames() %>% unique()), "Genes", drop=T] %>%
+                unique() %>% 
+                mapIds(org.Hs.eg.db, keys = ., 
+                column = "ENTREZID", keytype = "SYMBOL", 
+                multiVals = "first")
+i = 3
+up.genes_Synaptosomal = all[all$Protein_IDs%in%(up[[i]] %>% 
+                rownames() %>% unique()), "Genes", drop=T] %>%
+                unique() %>% 
+                mapIds(org.Hs.eg.db, keys = ., 
+                column = "ENTREZID", keytype = "SYMBOL", 
+                multiVals = "first")
+  
+
+i = 1
+down1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+  .[.< -loading_cutoff] %>% names()
+down2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+  .[.> loading_cutoff] %>% names()
+C = merge(final.models[[i]]$loadings$X[down1,"comp1",drop=F] %>% as.data.frame(), 
+              final.models[[i]]$loadings$X[down2,"comp2",drop=F] %>% as.data.frame(),
+          by=0, all=TRUE) %>% column_to_rownames(var="Row.names")
+
+i = 2
+down1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+  .[.> loading_cutoff] %>% names()
+down2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+  .[.< -loading_cutoff] %>% names()
+I = merge(final.models[[i]]$loadings$X[down1,"comp1",drop=F] %>% as.data.frame(), 
+              final.models[[i]]$loadings$X[down2,"comp2",drop=F] %>% as.data.frame(),
+          by=0, all=TRUE) %>% column_to_rownames(var="Row.names")
+
+i = 3
+down1 = final.models[[i]]$loadings$X[, "comp1"] %>%
+  .[.> loading_cutoff] %>% names()
+down2 = final.models[[i]]$loadings$X[, "comp2"] %>%
+  .[.> loading_cutoff] %>% names()
+S = merge(final.models[[i]]$loadings$X[down1,"comp1",drop=F] %>% as.data.frame(), 
+              final.models[[i]]$loadings$X[down2,"comp2",drop=F] %>% as.data.frame(),
+          by=0, all=TRUE) %>% column_to_rownames(var="Row.names")
+down = list(C, I, S)
 down = lapply(seq_along(compartments), function(i) {
-  top = final.models[[i]]$loadings$X[(final.models[[i]]$loadings$X < -0.035)%>% 
-                                 rowSums() >0, ]
-  top[intersect(rownames(top),protein.list$dir.list[[i]][[2]]),] %>%
+  top = down[[i]]
+  top[intersect(rownames(top),protein.list$dir.list[[i]][[2]]),,drop=F] %>%
     as.data.frame() %>% mutate("Reg"="down", "Fraction"=names[i])
 }) %>% setNames(compartments)
 down.genes = all[all$Protein_IDs%in%(Reduce(rbind, down) %>% 
-                 rownames() %>% unique()), "Genes", drop=T] %>%
-  unique() %>% mapIds(org.Hs.eg.db, keys = ., 
+                rownames() %>% unique()), "Genes", drop=T] %>%
+                unique() %>% 
+                mapIds(org.Hs.eg.db, keys = ., 
                 column = "ENTREZID", keytype = "SYMBOL", 
                 multiVals = "first")
-entrez_list_sig = list(up = up.genes, down = down.genes)
-entrez_list_sig$up %>% length()
-entrez_list_sig$down %>% length()
+i = 1
+down.genes_Cytosolic = all[all$Protein_IDs%in%(down[[i]] %>% 
+                rownames() %>% unique()), "Genes", drop=T] %>%
+                unique() %>% 
+                mapIds(org.Hs.eg.db, keys = ., 
+                column = "ENTREZID", keytype = "SYMBOL", 
+                multiVals = "first")
+i = 2
+down.genes_Insoluble = all[all$Protein_IDs%in%(down[[i]] %>% 
+                rownames() %>% unique()), "Genes", drop=T] %>%
+                unique() %>% 
+                mapIds(org.Hs.eg.db, keys = ., 
+                column = "ENTREZID", keytype = "SYMBOL", 
+                multiVals = "first")
+i = 3
+down.genes_Synaptosomal = all[all$Protein_IDs%in%(down[[i]] %>% 
+                rownames() %>% unique()), "Genes", drop=T] %>%
+                unique() %>% 
+                mapIds(org.Hs.eg.db, keys = ., 
+                column = "ENTREZID", keytype = "SYMBOL", 
+                multiVals = "first")
 
+
+entrez_list_sig = list(up = up.genes, down = down.genes)
+entrez_list_sig_Cytosolic = list(up = up.genes_Cytosolic, down = down.genes_Cytosolic)
+entrez_list_sig_Insoluble = list(up = up.genes_Insoluble, down = down.genes_Insoluble)
+entrez_list_sig_Synaptosomal = list(up = up.genes_Synaptosomal, down = down.genes_Synaptosomal)
+saveRDS(list(entrez_list_sig=entrez_list_sig,
+             entrez_list_sig_Cytosolic=entrez_list_sig_Cytosolic,
+             entrez_list_sig_Insoluble=entrez_list_sig_Insoluble,
+             entrez_list_sig_Synaptosomal=entrez_list_sig_Synaptosomal),
+        paste0(OUTDIR, "/pathwayAnalysis/entrez_list.RDS"))
 
 # Write the top up and top down proteins and their loadings into an excel file
 dir.create(paste0(OUTDIR, "/pathwayAnalysis/"), recursive = T, showWarnings = F)
 options(java.parameters = "-Xmx1000m")
-write.xlsx(as.data.frame(rbind(Reduce(rbind, up), Reduce(rbind, down))), 
+up = lapply(up, function(u) {
+  as.data.frame(u) %>%
+    rownames_to_column(var="Protein_IDs")
+})
+down = lapply(down, function(d) {
+  as.data.frame(d) %>%
+    rownames_to_column(var="Protein_IDs")
+})
+write.xlsx(as.data.frame(rbind(Reduce(rbind, up), 
+                               Reduce(rbind, down))), 
              paste0(OUTDIR, "/pathwayAnalysis/top_loading_proteins_used4ORA.xlsx"),
-             col.names=TRUE, row.names=TRUE,
+             col.names=TRUE, row.names=F,
              append=F)
+
+# Add gene names
+# library(readxl)
+# OUTDIR = "../results/rerun/plsDA/"
+# compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+# rslt.list = lapply(compartments, function(i) {
+#   read_excel(
+#     paste0("../results/rerun/DifferentialAnalysis/Differential_Table_",i,".xlsx"), 
+#                   sheet=1, col_names=TRUE, na="", skip=0)
+# }) %>% setNames(compartments)
+# all = Reduce(full_join, rslt.list)
+keptLoading = read_excel(
+    paste0(OUTDIR, "/pathwayAnalysis/top_loading_proteins_used4ORA.xlsx"), 
+                  sheet=1, col_names=TRUE, na="", skip=0)
+# colnames(keptLoading)[1] = "Protein_IDs"
+mapping = setNames(all[!duplicated(all$Protein_IDs), "Genes", drop=T], 
+         all[!duplicated(all$Protein_IDs), "Protein_IDs", drop=T])
+keptLoading$Genes = mapping[keptLoading$Protein_IDs] %>% as.character()
+# keptLoading = tibble::column_to_rownames(keptLoading, var="Protein_IDs")
+write.xlsx(as.data.frame(keptLoading), 
+             paste0(OUTDIR, "/pathwayAnalysis/top_loading_proteins_used4ORA.xlsx"),
+             col.names=TRUE, row.names=F,
+             append=F)
+
 ```
 
 ```{r, meassage=FALSE, warning=FALSE}
-if (file.exists(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA.xlsx"))) {
-        file.remove(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA.xlsx"))}
 library(clusterProfiler)
 # print("KEGG GSEA analysis")
 # library(xlsx)
-kk.sig = lapply(names(entrez_list_sig), function(i) {
-  gl = entrez_list_sig[[i]] %>% as.character()
-  kk = NULL
-  if (length(gl)>0) {
-    set.seed(1234)
-    kk= enrichKEGG(gene = gl,
-                   organism = 'hsa',
-                   pvalueCutoff = 1,
-                   qvalueCutoff = 1,
-                   #universe = universe,
-                   use_internal_data = F)
-    print("Convert Entrez ID back to gene symbol")
-    source("../src/convertEntrez2Symbol.R")
-    kk@result$geneID_Symbol = 
-      convertEntrez2Symbol(kk@result$geneID, mapping_list=entrez_list_sig[[i]]) %>%
-      as.character()
-    options(java.parameters = "-Xmx1000m")
-    write.xlsx(as.data.frame(kk@result), 
-             paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA.xlsx"),
-             sheetName = paste0(i, "_plsDA"),
-             col.names=TRUE, row.names=FALSE,
-             append=T)
-  }
-  return(kk)
-}) %>% setNames(names(entrez_list_sig))
 
-saveRDS(kk.sig, paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result.RDS"))
-# kk.sig = readRDS(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result.RDS"))
+get.kk.sig = function(entrez_list_sig, NAME, universe) {
+  if (file.exists(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_", NAME, ".xlsx"))) {
+        file.remove(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_", NAME, ".xlsx"))}
+  kk.sig = lapply(names(entrez_list_sig), function(i) {
+    gl = entrez_list_sig[[i]] %>% as.character()
+    kk = NULL
+    if (length(gl)>0) {
+      set.seed(1234)
+      kk= enrichKEGG(gene = gl,
+                     organism = 'hsa',
+                     pvalueCutoff = 1,
+                     qvalueCutoff = 1,
+                     universe = universe,
+                     use_internal_data = F)
+      print("Convert Entrez ID back to gene symbol")
+      source("../src/convertEntrez2Symbol.R")
+      kk@result$geneID_Symbol = 
+        convertEntrez2Symbol(kk@result$geneID, mapping_list=entrez_list_sig[[i]]) %>%
+        as.character()
+      options(java.parameters = "-Xmx1000m")
+      write.xlsx(as.data.frame(kk@result), 
+                 paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_", NAME, ".xlsx"),
+                 sheetName = paste0(i, "_plsDA"),
+                 col.names=TRUE, row.names=FALSE,
+                 append=T)
+    }
+    kk
+  }) %>% setNames(names(entrez_list_sig)) 
+  return(kk.sig)
+}
+
+universe = lapply(normData, function(n){
+  n$Genes %>% as.character()
+}) %>% unlist() %>% unique() %>% bitr(
+  .,
+  fromType = "SYMBOL",
+  toType = "ENTREZID",
+  OrgDb = org.Hs.eg.db) %>%
+  pull(ENTREZID) %>% as.character() %>% unique() %>% na.omit()
+
+NAME = "ALL"
+kk.sig = get.kk.sig(entrez_list_sig, NAME=NAME, universe=universe)
+saveRDS(kk.sig, paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_", NAME, ".RDS"))
+# kk.sig = readRDS(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_", NAME, ".RDS"))
+
+NAME = "Cytosolic"
+kk.sig_Cytosolic = get.kk.sig(entrez_list_sig_Cytosolic, NAME=NAME, universe=universe)
+saveRDS(kk.sig_Cytosolic, paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_", NAME, ".RDS"))
+# kk.sig_Cytosolic = readRDS(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_", NAME, ".RDS"))
+
+NAME = "Insoluble"
+kk.sig_Insoluble = get.kk.sig(entrez_list_sig_Insoluble, NAME=NAME, universe=universe)
+saveRDS(kk.sig_Insoluble, paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_", NAME, ".RDS"))
+# kk.sig_Insoluble = readRDS(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_", NAME, ".RDS"))
+
+NAME = "Synaptosomal"
+kk.sig_Synaptosomal = get.kk.sig(entrez_list_sig_Synaptosomal, NAME=NAME, universe=universe)
+saveRDS(kk.sig_Synaptosomal, paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_", NAME, ".RDS"))
+# kk.sig_Synaptosomal = readRDS(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_", NAME, ".RDS"))
+
 ```
 
 ### Dotplot showing significant KEGG pathways
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 source("../src/makeDotplot.R")
-p1 = makeDotplot_ORA_KEGG(list(all=kk.sig), index.list=1, 
-                       qval.thresh=0.1)
-pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_qvalueCutoff0.1.pdf"), h=8, w=8.5)
-p1
-invisible(dev.off())
 
-p1 = makeDotplot_ORA_KEGG(list(all=kk.sig), index.list=1, 
-                       qval.thresh=0.05)
-pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_qvalueCutoff0.05.pdf"), h=6.5, w=8.5)
-p1
-invisible(dev.off())
+qval.thresh = c(0.1, 0.05)
+lapply(qval.thresh, function(q) {
+    pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_p.adjustCutoff_", q, "_all.pdf"), h=2.9, w=6.5)
+      print(makeDotplot_ORA_KEGG(
+        list(ALL=kk.sig), 
+        index.list=1, 
+        p.adjust.thresh=q))
+    invisible(dev.off()) 
+})
+
+q = 0.1
+pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_p.adjustCutoff_", q, "_separately.pdf"), h=10, w=9)
+  print(makeDotplot_ORA_KEGG(
+    list(Cytosolic=kk.sig_Cytosolic, Nuclear=kk.sig_Insoluble, Synaptosomal=kk.sig_Synaptosomal), 
+    index.list=1:3, 
+    p.adjust.thresh=q))
+invisible(dev.off()) 
+
+q = 0.05
+pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_p.adjustCutoff_", q, "_separately.pdf"), h=6.5, w=9)
+  print(makeDotplot_ORA_KEGG(
+    list(Cytosolic=kk.sig_Cytosolic, Nuclear=kk.sig_Insoluble, Synaptosomal=kk.sig_Synaptosomal), 
+    index.list=1:3, 
+    p.adjust.thresh=q))
+invisible(dev.off()) 
+
 ```
+
+## ORA on synGO
+
+```{r}
+# Import plsDA selected genes
+plsDA_out_syn = 
+  readxl::read_excel("../results/rerun/plsDA/pathwayAnalysis/top_loading_proteins_used4ORA.xlsx") %>% 
+  filter(Fraction=="SYNAPTOSOMAL")
+up = filter(plsDA_out_syn, Reg=="up") %>% pull(Genes)
+down = filter(plsDA_out_syn, Reg=="down") %>% pull(Genes)
+all = c(up, down)
+up
+down
+length(all)
+
+# synGO
+synGO = xlsx::read.xlsx2("../data/SynGO_bulk_download_release_20231201/syngo_ontologies.xlsx",
+                   sheetName = "Sheet 1", header=T) #%>% filter(domain=="BP")
+syn_ref = split(synGO$hgnc_symbol, synGO$name) 
+syn_set = lapply(names(syn_ref), function(s) {
+    set = syn_ref[[s]]
+    as.data.frame(list(gs_name = s, human_entrez_gene=strsplit(set, ", ")[[1]] %>% unique()))
+  }) %>% Reduce(rbind, .) 
+
+
+normData = 
+  readRDS("../results/rerun/QC/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS")
+
+# Run ORA on synGO
+library(clusterProfiler)
+synGO_ora_results_up = enricher(
+  gene = up, # A vector of your genes of interest
+  pvalueCutoff = 0.1, # Can choose a FDR cutoff
+  pAdjustMethod = "BH", # Method to be used for multiple testing correction
+  universe = normData$SYNAPTOSOMAL$Genes%>%unique(), # A vector containing your background set genes
+  # The pathway information should be a data frame with a term name or
+  # identifier and the gene identifiers
+  TERM2GENE = syn_set%>%as.data.frame()
+  )
+synGO_ora_results_up@result
+
+synGO_ora_results_down = enricher(
+  gene = up, # A vector of your genes of interest
+  pvalueCutoff = 0.1, # Can choose a FDR cutoff
+  pAdjustMethod = "BH", # Method to be used for multiple testing correction
+  universe = normData$SYNAPTOSOMAL$Genes%>%unique(), # A vector containing your background set genes
+  # The pathway information should be a data frame with a term name or
+  # identifier and the gene identifiers
+  TERM2GENE = syn_set%>%as.data.frame()
+  )
+synGO_ora_results_down@result
+
+TableNames = list("Synaptosomal_up"=synGO_ora_results_up@result,
+                  "Synaptosomal_down"=synGO_ora_results_down@result)
+openxlsx::write.xlsx(TableNames, "../results/rerun/plsDA/pathwayAnalysis/synGO/")
+
+
+```
+
+
+
+# Spliceosome protein visualization
+
+```{r, fig.height=8, fig.width=8}
+# Proteins/genes
+Spliceosome_genes = kk.sig_Insoluble$up@result %>% 
+  filter(Description=="Spliceosome") %>% 
+  pull(geneID_Symbol) %>% str_split("/") %>% 
+  .[[1]]
+
+# Design
+design = read_table("../data/design_7314/design_PELLET.tsv")
+design
+
+# Normalized protein abundance
+Insoluble_Nintensity = read_excel(
+    paste0("../results/rerun/QC/NormalizedIntensity.xlsx"), 
+                  sheet=2, col_names=TRUE, na="", skip=0) %>%
+    filter(Genes %in% Spliceosome_genes) %>%
+    gather("sample", "Norm.intensity", -Genes, -Gene_names, -Protein_IDs) %>%
+    full_join(design)
+Insoluble_Nintensity$Condition = ifelse(Insoluble_Nintensity$Condition=="case", "AUD", "UC")
+
+theme_set(theme_bw())
+P = ggplot(Insoluble_Nintensity, aes(x=Condition, y=Norm.intensity)) +
+  geom_violin(aes(fill=Condition)) + 
+  facet_wrap(~Protein_IDs, nrow=4, scale="free") +
+  geom_boxplot(width=0.1) +
+  geom_point(position = position_jitter(seed = 1, width = 0.2))
+  #geom_dotplot(binaxis='y', stackdir='center', dotsize=1)
+
+P
+
+pdf(paste0(OUTDIR, "/pathwayAnalysis/Spliceosome_proteins_visualization.pdf"), h=6.5, w=8)
+P
+dev.off()
+```
+
+
 
 # Session Info
 
 ```{r}
-sink(paste0(OUTDIR, "sessionInfo.txt"))
+out = capture.output(print(sessionInfo()))
+writeLines(out, paste0(OUTDIR, "sessionInfo.txt"))
+
 print(sessionInfo())
-sink()
+
 ```
 
 # Deliverables

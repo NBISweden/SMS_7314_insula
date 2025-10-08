@@ -74,27 +74,9 @@ Because there is a big batch effect (between G1 and G2, see the PCA plot in ../r
 ```{r}
 suppressPackageStartupMessages({
   library(readxl)
-  library(purrr)
-  library(EDASeq)
-  library(limma)
-  library(emmeans)   
-  library(edgeR)
-  library(future.apply)
   library(dplyr)
-  library(tidyr)
-  library(plyr)
   library(xlsx)
-  library(ggplot2)
-  library(ComplexHeatmap)
-  library(GGally)
-  library(org.Hs.eg.db)
-  library(AnnotationDbi) 
-  library(pathview)
-  library(UniProt.ws)
-  library(GGally)
-  library(clusterProfiler)
-  library(ggrepel)
-  library(enrichR)
+ 
 })
 ```
 
@@ -126,7 +108,7 @@ print("Import all three datasets together...")
 file = '~$Data result_CYTOSOLIC extracts (CPJS05122201).xlsx'
 if (file.exists(file)) {file.remove(file)}
 inputfiles = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = T)
-dataTable.list0 = suppressWarnings(map(inputfiles, function(x) {
+dataTable.list0 = suppressWarnings(lapply(inputfiles, function(x) {
   dat = read_excel(x, sheet=5, col_names=TRUE, na="", skip=0)
   ncol = ncol(dat)
   dat = read_excel(x, sheet=5, col_names=TRUE, na="", skip=0,
@@ -143,7 +125,7 @@ dataTable.list0 = suppressWarnings(map(inputfiles, function(x) {
   })) %>% setNames(sample_names)
 
 
-design.table.list = suppressWarnings(map(seq_along(dataTable.list0), function(i) {
+design.table.list = suppressWarnings(lapply(seq_along(dataTable.list0), function(i) {
   dataTable = dataTable.list0[[i]]
   sampleNames = colnames(dataTable)[3:ncol(dataTable)]
   tab = sapply(sampleNames, function(j) {
@@ -155,41 +137,84 @@ design.table.list = suppressWarnings(map(seq_along(dataTable.list0), function(i)
   design.table$Condition = tolower(design.table$Condition)
   design.table.filename = paste0(designP, "/design_", sample_names[i], ".tsv")
   write.table(design.table, design.table.filename, quote=F, row.names=F, sep="\t")
+  design.table$Condition = ifelse(design.table$Condition=="control", "UC", "AUD")
   design.table
 })) %>% setNames(sample_names)
 
 moreMeta <- tibble::tribble(
   ~sampleID,     ~Sex,    ~Age,  ~RIN,   ~PMI,  ~Condition,   ~pH, ~TissueStorageTime_months,
- #---------|-----------|------|-------|-------|------------|------|--------------------------|
-  "13005",      "Male",     45,    7.4,   8.48,     "case",   6.2,                   109.4,
-  "13172",      "Male",     49,    9.4,   7.32,     "case",   6.6,                    85.6,
-  "13189",    "Female",     59,    7.8,    7.5,     "case",   6.1,                    84.2,
-  "13193",      "Male",     38,    9.5,   7.78,     "case",   6.7,                    83.5,
-  "13234",    "Female",     51,    9.6,  10.12,     "case",   6.8,                    78.2,
-  "13246",      "Male",     59,    8.8,    9.5,     "case",   6.2,                    76.7,
-  "13271",      "Male",     65,    7.1,  11.97,     "case",   6.3,                    72.4,
-  "13296",      "Male",     55,    8.9,   7.68,     "case",   6.5,                    69.4,
-  "13327",      "Male",     58,    8.3,    6.7,     "case",   6.3,                    65.4,
-  "13346",      "Male",     53,    7.0,    9.3,     "case",   6.2,                    63.3,
-  "13211",      "Male",     52,    8.8,  12.33,     "case",   6.1,                    81.1,
-  "13504",      "Male",     50,    7.1,  11.25,     "case",   6.5,                    44.2,
-  "13350",      "Male",     45,    8.9,   7.08,  "control",   6.7,                    62.7,
-  "13259",      "Male",     48,    8.5,   8.25,  "control",   6.3,                    74.8,
-  "13475",    "Female",     58,    7.8,   8.75,  "control",   6.8,                    48.5,
-  "13414",      "Male",     41,    8.1,   9.85,  "control",   6.7,                    54.5,
-  "13149",    "Female",     46,    7.5,    7.6,  "control",   6.3,                    88.3,
-  "13645",      "Male",     58,    9.3,   14.4,  "control",   6.5,                    23.0,
-  "13428",      "Male",     64,    9.0,   9.22,  "control",   6.7,                    53.5,
-  "13048",      "Male",     54,    9.3,    8.4,  "control",   6.8,                   103.2,
-  "13170",      "Male",     59,    8.9,  11.65,  "control",   6.7,                    86.0,
-  "13032",      "Male",     52,    8.1,   8.97,  "control",   6.4,                   105.9,
-  "13068",      "Male",     48,    9.5,  12.78,  "control",   6.8,                   100.1,
-  "13298",      "Male",     50,    8.5,  10.67,  "control",   6.7,                    69.3,
+ #---------|-----------|-------|-------|-------|------------|------|--------------------------|
+  "13005",      "Male",     45,    7.4,   8.48,     "AUD",   6.2,                   109.4,
+  "13172",      "Male",     49,    9.4,   7.32,     "AUD",   6.6,                    85.6,
+  "13189",    "Female",     59,    7.8,    7.5,     "AUD",   6.1,                    84.2,
+  "13193",      "Male",     38,    9.5,   7.78,     "AUD",   6.7,                    83.5,
+  "13234",    "Female",     51,    9.6,  10.12,     "AUD",   6.8,                    78.2,
+  "13246",      "Male",     59,    8.8,    9.5,     "AUD",   6.2,                    76.7,
+  "13271",      "Male",     65,    7.1,  11.97,     "AUD",   6.3,                    72.4,
+  "13296",      "Male",     55,    8.9,   7.68,     "AUD",   6.5,                    69.4,
+  "13327",      "Male",     58,    8.3,    6.7,     "AUD",   6.3,                    65.4,
+  "13346",      "Male",     53,    7.0,    9.3,     "AUD",   6.2,                    63.3,
+  "13211",      "Male",     52,    8.8,  12.33,     "AUD",   6.1,                    81.1,
+  "13504",      "Male",     50,    7.1,  11.25,     "AUD",   6.5,                    44.2,
+  "13350",      "Male",     45,    8.9,   7.08,      "UC",   6.7,                    62.7,
+  "13259",      "Male",     48,    8.5,   8.25,      "UC",   6.3,                    74.8,
+  "13475",    "Female",     58,    7.8,   8.75,      "UC",   6.8,                    48.5,
+  "13414",      "Male",     41,    8.1,   9.85,      "UC",   6.7,                    54.5,
+  "13149",    "Female",     46,    7.5,    7.6,      "UC",   6.3,                    88.3,
+  "13645",      "Male",     58,    9.3,   14.4,      "UC",   6.5,                    23.0,
+  "13428",      "Male",     64,    9.0,   9.22,      "UC",   6.7,                    53.5,
+  "13048",      "Male",     54,    9.3,    8.4,      "UC",   6.8,                   103.2,
+  "13170",      "Male",     59,    8.9,  11.65,      "UC",   6.7,                    86.0,
+  "13032",      "Male",     52,    8.1,   8.97,      "UC",   6.4,                   105.9,
+  "13068",      "Male",     48,    9.5,  12.78,      "UC",   6.8,                   100.1,
+  "13298",      "Male",     50,    8.5,  10.67,      "UC",   6.7,                    69.3,
 )
 
 design.table.list = lapply(design.table.list, function(t) {
   dplyr::full_join(t, moreMeta)
 })
+```
+
+```{r}
+# lapply(design.table.list, function(r) {
+#   r = r[, 2:ncol(r)] %>% apply(.,2, as.numeric)
+#   cor(r, method="spearman")
+# })
+
+r = design.table.list[[1]]
+r = r[, 2:ncol(r)] %>% apply(.,2, function(x) {
+  if (is.character(x)) {
+    as.numeric(as.factor(x))
+  } else {
+    x
+  }
+}) %>% as.data.frame()
+cors = cor(r, method="spearman")
+write.table(cors, "../results/rerun/QC/CorrelationMatrix_spearman.csv",
+            sep="\t", quote=FALSE, col.names=NA)
+
+cor.test(r$RIN, r$pH, method="spearman")
+# Spearman's rank correlation rho
+# 
+# data:  r$RIN and r$pH
+# S = 965.15, p-value = 0.002947
+# alternative hypothesis: true rho is not equal to 0
+# sample estimates:
+#       rho 
+# 0.5803713  
+
+cor.test(r$Condition, r$pH, method="spearman")
+# Spearman's rank correlation rho
+# 
+# data:  r$Condition and r$pH
+# S = 1120.5, p-value = 0.0104
+# alternative hypothesis: true rho is not equal to 0
+# sample estimates:
+#       rho 
+# 0.5128056 
+```
+
+```{r}
 ```
 
 # Save supplementary tables to a file:
@@ -199,16 +224,26 @@ outDir = "../results/rerun/"
 OUTDIR_QC = paste0(outDir, "/QC/")
 dataTable.list_SL_IRS_TMM =
   readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+NAMES = c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL")
 
+
+# ORA
+SupplG = lapply(1:3, function(i) {
+  d = read_excel(paste0("../results/rerun/PathwayAnalysis/ORA_GO_C/GO_CC.xlsx"),
+                 sheet=i, col_names=TRUE, na="", skip=0)
+  d$Fraction = NAMES[i]
+  d
+}) %>% setNames(NAMES) %>% Reduce(rbind, .)
+
+# Limma
 OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
-NAMES = c("CYTOSOLIC", "INSOLUABLE", "SYNAPTOSOMAL")
 rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
   read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
                  sheet=1, col_names=TRUE, na="", skip=0)
 }) %>% setNames(NAMES)
 rslt.list$CYTOSOLIC[, "133C_G2"] = ""
 for (i in seq_along(rslt.list)) {
-  rslt.list[[i]]$Compartment = names(rslt.list)[i] 
+  rslt.list[[i]]$Fraction = names(rslt.list)[i] 
 }
 SuppA = Reduce(rbind, rslt.list)
 
@@ -218,16 +253,77 @@ ORA.list = lapply(1:2, function(j) {
   K = NAMES[j]
   A = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_", i, ".xlsx"),
                  sheet=1, col_names=TRUE, na="", skip=0)
-  A$Compartment = K
-  A
+  A$Fraction = K
+  A$Regulation = "Up"
+  B = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_", i, ".xlsx"),
+                 sheet=2, col_names=TRUE, na="", skip=0)
+  B$Fraction = K
+  B$Regulation = "Down"
+  rbind(A,B)
 })
 SupplB = Reduce(rbind, ORA.list)
-
-
-SupplC = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_all.xlsx"),
+SupplC1 = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_all.xlsx"),
                  sheet=1, col_names=TRUE, na="", skip=0)
+SupplC1$Fraction = "All"
+SupplC1$Regulation = "Up"
+SupplC2 = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_all.xlsx"),
+                 sheet=2, col_names=TRUE, na="", skip=0)
+SupplC2$Fraction = "All"
+SupplC2$Regulation = "Down"
+SupplC = rbind(SupplC1, SupplC2)
+SupplB = rbind(SupplB, SupplC)
 
 
+
+# pls-DA
+## Feature loading
+SupplH = read_excel("../results/rerun/plsDA/pathwayAnalysis/top_loading_proteins_used4ORA.xlsx")
+colnames(SupplH) = c("ID", colnames(SupplH)[2:ncol(SupplH)])
+## pls-DA ORA
+SupplI = lapply(seq_along(c(NAMES, "all")), function(i) {
+  N = stringr::str_to_title(c(NAMES, "all"))[i]
+  up = read_excel(paste0("../results/rerun/plsDA/pathwayAnalysis/KEGG_ORA_", N, ".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+  up$Reg = "Up(in AUD)"
+  up$Fraction = c(NAMES, "ALL")[i]
+  dn = read_excel(paste0("../results/rerun/plsDA/pathwayAnalysis/KEGG_ORA_", N, ".xlsx"),
+                 sheet=2, col_names=TRUE, na="", skip=0)
+  dn$Reg = "Down(in AUD)"
+  dn$Fraction = c(NAMES, "ALL")[i]
+  rbind(up, dn)
+}) %>% Reduce(rbind, .)
+
+
+
+# DIABLO
+## Selected feature loading
+comps = c("Comp1", "Comp2")
+NAMES_old = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+SupplJ = lapply (comps, function(c) {
+  lapply (seq_along(NAMES_old), function(i) {
+    N = NAMES_old[i]
+    d = read_excel("../results/rerun/Integration/DIABLO/selectedProteins/SelectedFeatures_weights.xlsx",
+                   sheet=paste0(c, "_", N), col_names=TRUE, na="", skip=0)
+    colnames(d)[2] = "Feature_loading"
+    d$Fraction = NAMES[i]
+    d$Component = c
+    d
+  }) %>% Reduce(rbind, .)
+}) %>% Reduce(rbind, .)
+
+## DIABLO_ORA
+SupplK = lapply(seq_along(c("up", "down")), function(i) {
+  r = c("up", "down")[i]
+  d = read_excel("../results/rerun/Integration/DIABLO/pathwayAnalysis/KEGG_ORA_comp1.xlsx",
+                   sheet=paste0(r, "_Diablo"), col_names=TRUE, na="", skip=0)
+  d$Reg = c("Up(in AUD)", "Down(in AUD)")[i]
+  # d$Analysis = "Diablo"
+  d
+}) %>% Reduce(rbind, .)
+
+
+
+# Drug targets
 
 dbs <- c("DSigDB", 
          "MAGMA_Drugs_and_Diseases", "IDG_Drug_Targets_2022")
@@ -278,7 +374,9 @@ table(SupplF$Reg)
 table(SupplF$DataBase)
 
 
-
+# Drug repurposing analysis ***NEW
+SupplO = read_excel("../results/rerun/Additional/DrugTarget_L1000/onlyMatureNeuron/perturbagen_candidates_OnlyStrongDrugSignatures.xlsx",
+                 sheet=1, col_names=TRUE, na="", skip=0)
 
 # Design Table
 library(tidyverse)
@@ -289,21 +387,87 @@ design.table2 = lapply(seq_along(design.table.list), function(i) {
   m$TMTlableReagent = paste0(TMTset[i], "-", m$sample)
   m$TMTlableReagent = gsub("_G1", "", m$TMTlableReagent)
   m$TMTlableReagent = gsub("_G2", "", m$TMTlableReagent)
-  m = m %>% rename(TMTbatch=Batch)
+  m = m %>% dplyr::rename(TMTbatch=Batch)
   m
 }) %>% Reduce(rbind, .)
 
+# Differential alternative splicing analysis
+## Only the most significant equivalence class pair for each protein
+SupplL = lapply(seq_along(NAMES_old), function(i) {
+  f = NAMES_old[i]
+  d = readr::read_tsv(
+    paste0("../results/rerun/AlternativeSplicing/", f, "/DAS_results_gene_level.tsv"),
+    show_col_types = FALSE)
+  d$fraction = NAMES[i]
+  d
+}) %>% Reduce(rbind, .)
 
-TableNames = list("SE"=design.table2, "SA"=SuppA, "SB"=SupplB, "SC"=SupplC, "SD"=SupplD, "SF"=SupplF)
+## All significant equivalence class pairs for MAP2  
+SupplM = lapply(seq_along(NAMES_old), function(i) {
+  f = NAMES_old[i]
+  d = readr::read_tsv(
+    paste0("../results/rerun/AlternativeSplicing/", f, "/ALL_ISO_TESTS/DAS_results_isoform_level_MAP2.tsv"),
+    show_col_types = FALSE)
+  d$fraction = NAMES[i]
+  d
+}) %>% Reduce(rbind, .)
+
+## ORA analysis
+SupplN = readr::read_tsv(
+    paste0("../results/rerun/AlternativeSplicing/KEGG_ORG/KEGG_ORG_sig.tsv"),
+    show_col_types = FALSE)
+
+## Celltype analysis
+SupplT = read_excel("../results/rerun/Celltype/CellType_prediction_GSEA.xlsx",
+                 sheet=1, col_names=TRUE, na="", skip=0)
+
+## Translocation indices
+SupplW = read.table("../results/rerun/Translocation/TranslocaitonIndex.csv",
+                    header=T)
+colnames(SupplW) = gsub("X", "", colnames(SupplW))
+
+## GSEA with SynGO on synaptosomal differential result
+SupplSS = openxlsx::read.xlsx("../results/rerun/PathwayAnalysis/SynGO/Dotplot_enriched_SynGO.xlsx")
+
+
+## Translocation indices limma results
+all.samples = colnames(SupplW) %>% setdiff(., c("Protein_IDs", "Translocation"))
+SupplV.list = readRDS("../results/rerun/Translocation/Limma/Limma_results.RDS")
+SupplV = lapply(seq_along(SupplV.list), function(i) {
+  V = SupplV.list[[i]]
+  if (!("133C_G2" %in% colnames(V))) {
+    V$`133C_G2`="NA"}
+  V$Translocation = names(SupplV.list)[i]
+  V#V[, c("Protein_IDs", "Translocation", all.samples)]
+}) %>% Reduce(rbind, .)
+
+## GSEA result on Translocation indices using SynGO
+SupplX.list = readRDS("../results/rerun/Translocation//GSEA/SynGO/GSEA_output_wSynGO.RDS")
+X = SupplX.list[["C2S"]]$fgseaRes
+X$Translocation = names(SupplX.list)[i]
+SupplX = X %>% select(Translocation, everything())
+
+## GSEA result on Translocation indices using KEGG
+SupplY.list = readRDS("../results/rerun/Translocation/GSEA/KEGG/GSEA_output.RDS")
+SupplY = lapply(seq_along(SupplY.list[c("C2N", "S2N")]), function(i) {
+  Y = SupplY.list[[i]]$fgseaRes
+  Y$Translocation = names(SupplY.list)[i]
+  Y %>% select(Translocation, everything())
+}) %>% Reduce(rbind, .)
+
+
+TableNames = list("SE"=design.table2, "SG"=SupplG, "SA"=SuppA, "SB"=SupplB, "SH"=SupplH, "SI"=SupplI, "SJ"=SupplJ, "SK"=SupplK, "SO"=SupplO, "SL"=SupplL, "SM"=SupplM, "ST"=SupplT,
+                  "SV"=SupplV, "SSS"=SupplSS, "SX"=SupplX, "SY"=SupplY)
+
+# TableNames = list("SE"=design.table2, "SG"=SupplG, "SA"=SuppA, "SB"=SupplB, "SH"=SupplH, "SI"=SupplI, "SJ"=SupplJ, "SK"=SupplK, "SD"=SupplD, "SF"=SupplF, "SL"=SupplL, "SM"=SupplM)
+
 openxlsx::write.xlsx(TableNames, 
              file = paste0("/Users/ekol-yal/Documents/Project/2024/SMS_7314_insula/doc/Figures_tables/SupplementaryTable.xlsx")) 
 
 ```
 
 ```{r}
-sink(paste0(OUTDIR_ORA, "/seesionInfo.txt"))
-print(sessionInfo())
-sink()
+
 ```
 
 # Deliverables

@@ -69,6 +69,8 @@ The data has already been filtered by the company (e.g. removed proteins with CO
 
 Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
 
+**Pellet = Insoluble = Nuclear**
+
 # Import and process the data
 
 ```{r}
@@ -101,8 +103,6 @@ suppressPackageStartupMessages({
 ```{r}
 jName = "7314"
 inputP = "../data/Creative Proteomics_DATA/"
-# dataP = paste0("../data/input_", jName) #
-# dir.create(dataP, showWarnings=F, recursive=T) #
 designP = paste0("../data/design_", jName) #
 dir.create(designP, showWarnings=F, recursive=T) #
 outDir = "../results/rerun/"
@@ -301,7 +301,7 @@ design.table.list =
 }) %>% setNames(names(design.table.list))
 
 # design.table.list = lapply(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"), function(i) {
-#   read_table(paste0(designP, "/design_", i, ".tsv"))
+#   readr::read_table(paste0(designP, "/design_", i, ".tsv"))
 # }) %>% setNames(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"))
 
 RINvsPH = function(table) {
@@ -605,7 +605,14 @@ dataTable.list_SL_IRS_TMM = lapply(dataTable.list_SL_IRS_TMM, function(dat) {
   dat[INDEX.NA, "Genes"] = new.Gene.Names
   dat
 })
-  
+
+# Save the normalized counts
+OUTDIR_QC = paste0(outDir, "/QC/")
+saveRDS(dataTable.list_SL_IRS_TMM, 
+        paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM_allSamples.RDS"))
+# dataTable.list_SL_IRS_TMM = readRDS(
+#   paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM_allSamples.RDS")
+# )
 # library(UniProt.ws)
 # up <- UniProt.ws(taxId=9606)
 ```
@@ -644,6 +651,14 @@ makePCAplot =
       design = design.table.list[[i]]
       design$Age_group = ifelse(design$Age<=45, "0-45", 
                                 ifelse(design$Age<=55, "46-55", "56-65"))
+      
+      # Add TMT label order:
+      rownames(design) = design$sample
+      design = design[c("127N_G1", "127C_G1", "128N_G1", "128C_G1", "129N_G1", "129C_G1", "130N_G1", "130C_G1", "131N_G1", "131C_G1", "132N_G1", "132C_G1", "128N_G2", "128C_G2", "129N_G2", "129C_G2", "130N_G2", "130C_G2", "131N_G2", "131C_G2", "132N_G2", "132C_G2", "133N_G2", "133C_G2"), ]
+      design$TMTlabelOrder = rep(1:12, 2)
+      design$TMTlabel = gsub("_G1", "", design$sample)
+      design$TMTlabel = gsub("_G2", "", design$TMTlabel)
+      
       var_explained = c_pca$sdev %>% 
         tibble::as_tibble() %>% 
         frac_var() %>% 
@@ -656,13 +671,15 @@ makePCAplot =
       P1=suppressMessages(ggpairs(c_pca_all,
                                   columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
                                             "Condition", "Sex", "Age", "RIN", "PMI",
-                                            "Total_intensity", "MissingValues"),
+                                          "Total_intensity", "MissingValues", "TMTlabelOrder",
+                                          "TMTlabel"),
                                   mapping=aes(color=Batch), upper=list(continuous='blank'),
                                   main="Colored by Batch"))
       P2=suppressMessages(ggpairs(c_pca_all,
                                   columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
                                             "Condition", "Sex", "Age", "RIN", "PMI",
-                                            "Total_intensity", "MissingValues"),
+                                          "Total_intensity", "MissingValues", "TMTlabelOrder",
+                                          "TMTlabel"),
                                   mapping=aes(color=Condition), upper=list(continuous='blank'),
                                   main="Colored by Condition"))
       FILE = ifelse(onlyDEGs, paste0(OUTDIR_QC, "/", i, "_PCA_plot_onDEGs.pdf"),
@@ -680,6 +697,45 @@ makePCAplot =
                   c("Condition", "MissingValues"),
                   c("Condition", "pH"),
                   c("Condition", "TissueStorageTime_months"))
+      
+      V = c("Batch", "Condition", "TMTlabelOrder")
+      p1_1 = ggplot(aes(PC1, PC2), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+      p1_2 = ggplot(aes(PC2, PC4), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = ""))
+      p1_3 = ggplot(aes(PC2, PC3), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+      p1_4 = ggplot(aes(PC1, PC3), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+      print(cowplot::plot_grid(p1_1, p1_2, p1_3, p1_4, ncol=2, labels=i))
+      
+      V = c("Batch", "Condition", "TMTlabel")
+      p2_1 = ggplot(aes(PC1, PC2), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+      p2_2 = ggplot(aes(PC2, PC4), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = ""))
+      p2_3 = ggplot(aes(PC2, PC3), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+      p2_4 = ggplot(aes(PC1, PC3), data = c_pca_all) +
+          geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+          labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+          y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+      print(cowplot::plot_grid(p2_1, p2_2, p2_3, p2_4, ncol=2, labels=i))
+      
       lapply(vars, function(V) {
         p3 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
           geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
@@ -692,13 +748,14 @@ makePCAplot =
         p5 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
           geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
           labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
-               y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = "")) 
+               y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
         p52 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
           geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
           labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
-               y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = "")) 
+               y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = ""))
         print(cowplot::plot_grid(p3, p4, p5, p52, ncol=2, labels=i))    
       })
+      
       invisible(dev.off())
   }))    
 }
@@ -849,6 +906,7 @@ lapply(names(rslt.list), function(i) {
     row.names = F, append = F)  
 })
 
+# OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
 # rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
 #   read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
 #                  sheet=1, col_names=TRUE, na="", skip=0)
@@ -858,6 +916,16 @@ lapply(names(rslt.list), function(i) {
 Volcano plot
 
 ```{r}
+# OUTDIR_QC = paste0(outDir, "/QC/")
+# OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+# dataTable.list_SL_IRS_TMM =
+#   readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+# 
+# rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+#   read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+#                  sheet=1, col_names=TRUE, na="", skip=0)
+#   }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
 doVolcano = function(resi, NAME, lfcShrink=F) {
   selectedCols <- c("Protein_IDs", "logFC", "P.Value", "adj.P.Val")
   toExport <- resi[, selectedCols]
@@ -865,10 +933,13 @@ doVolcano = function(resi, NAME, lfcShrink=F) {
 
   tmp <- as.data.frame(toExport) %>%
     filter(!is.na(adj.P.Val)) %>%
-    mutate(sig = ifelse(adj.P.Val<0.2,
-                        ifelse(logFC > 0, "up", "down"), "nonSig"))
+    mutate(sig = case_when(
+    adj.P.Val < 0.2 & logFC > 0.3  ~ "up",
+    adj.P.Val < 0.2 & logFC < -0.3 ~ "down",
+    TRUE                            ~ "nonSig"
+  ))
   tmpSignif <- tmp %>%
-    filter(P.Value < quantile(tmp$P.Value, 0.001))
+    filter(P.Value < quantile(tmp$P.Value, 0.01) & sig!="nonSig")
   
   p = ggplot(data = tmp, aes(logFC, -log10(adj.P.Val), col = sig)) + 
     geom_point() + 
@@ -876,14 +947,14 @@ doVolcano = function(resi, NAME, lfcShrink=F) {
     geom_text_repel(data = tmpSignif, aes(logFC, -log10(adj.P.Val), 
                                           label = Protein_IDs)) +
     geom_hline(yintercept = -log10(0.2), lty = 2) +
-    geom_vline(xintercept = c(-log2(0), log2(0)), lty = 2) + 
+    geom_vline(xintercept = c(-0.3, 0.3), lty = 2) + 
     scale_colour_manual(values = c("down"="blue", "nonSig"="black", "up"="red")) + 
     theme(legend.position="none") +
     ggtitle(ifelse(lfcShrink, paste0(NAME, "_lfcShrink"), paste0(NAME, "")))
   return(p)
 }
 
-NAMES = names(rslt.list)
+NAMES = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL") #names(rslt.list)
 for (i in seq_along(rslt.list)) {
   p = doVolcano(rslt.list[[i]], NAME=NAMES[i], lfcShrink=F)
   assign(paste0("P", i), p)
@@ -893,11 +964,14 @@ cowplot::plot_grid(P1, P2, P3, ncol=2, nrow=2)
 pdf(paste0(OUTDIR_DA, "Volcano_plot.pdf"), h=8, w=10)
 cowplot::plot_grid(P1, P2, P3, ncol=2, nrow=2)
 invisible(dev.off())
+
 ```
 
 MA plot
 
 ```{r}
+# OUTDIR_QC = paste0(outDir, "/QC/")
+# OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
 # dataTable.list_SL_IRS_TMM =
 #   readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
 # 
@@ -917,6 +991,7 @@ invisible(lapply(seq_along(rslt.list), function(i) {
     theme_bw())
 }))
 invisible(dev.off())
+
 ```
 
 ## PCA on DEGs
@@ -924,9 +999,13 @@ invisible(dev.off())
 NOTE: the batch effects were not removed from those PCA plots
 
 ```{r}
+# design.table.list = lapply(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"), function(i) {
+#   readr::read_table(paste0(designP, "/design_", i, ".tsv"))
+# }) %>% setNames(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"))
+
 DEGtops = lapply(seq_along(rslt.list), function(d) {
   if (d<3) {
-    rslt.list[[d]] %>% filter(adj.P.Val<0.2) %>%
+    rslt.list[[d]] %>% filter(adj.P.Val<0.2&abs(logFC)>0.3) %>%
       pull(Protein_IDs)   
   } else {
     rslt.list[[d]] %>% top_n(n = 20, wt=adj.P.Val) %>%
@@ -939,14 +1018,14 @@ makePCAplot(dataTable.list_SL_IRS_TMM, design.table.list,
     
 ```
 
-## Barplot of significant proteins abundance (adj.P.Val\<0.2)
+## Barplot of significant proteins abundance (adj.P.Val\<0.2&logFC\>0.3)
 
 ```{r}
 plotProteins = function(mat, design_matrix) {
   nCounts = mat %>% as.data.frame() %>%
     gather(-c(Protein_IDs,Genes, Gene_names, logFC,AveExpr,t,P.Value,adj.P.Val,B), 
            key="sample", value="NormalizedAbundance") %>% 
-    filter(adj.P.Val<0.2) %>% full_join(design_matrix) %>% 
+    filter(adj.P.Val<0.2&abs(logFC)>0.3) %>% full_join(design_matrix) %>% 
     arrange(adj.P.Val, logFC)
   #library(plyr)
   df = ddply(nCounts, .(Batch, Condition, Protein_IDs), summarize,
@@ -994,47 +1073,48 @@ lapply(names(rslt.list), function(i) {
 ## How many proteins are shared: upset plot
 
 ```{r}
-makeUpset = function(log2FoldChange_thresh, padj_thresh) {
+makeUpset = function(log2FoldChange_thresh, padj_thresh, newNames) {
   protein.list = lapply(names(rslt.list), function(i) {
     up = as.data.frame(rslt.list[[i]]) %>% 
       filter(logFC>log2FoldChange_thresh&adj.P.Val<padj_thresh)
     down = as.data.frame(rslt.list[[i]]) %>% 
-      filter(logFC<log2FoldChange_thresh&adj.P.Val<padj_thresh)
+      filter(logFC< -log2FoldChange_thresh&adj.P.Val<padj_thresh)
     list(up$Protein_IDs, down$Protein_IDs)
   })  %>% setNames(names(rslt.list))
   
   protein.list_UP = c(protein.list[[1]][1], protein.list[[2]][1], protein.list[[3]][1]) %>% 
-    setNames(c(paste0(names(protein.list)[1], "_UP"), 
-               paste0(names(protein.list)[2], "_UP"), 
-               paste0(names(protein.list)[3], "_UP")))
+    setNames(c(paste0(newNames[1], "_UP"), 
+               paste0(newNames[2], "_UP"), 
+               paste0(newNames[3], "_UP")))
   protein.list_DOWN = c(protein.list[[1]][2], protein.list[[2]][2], protein.list[[3]][2]) %>% 
-    setNames(c(paste0(names(protein.list)[1], "_DOWN"), 
-               paste0(names(protein.list)[2], "_DOWN"), 
-               paste0(names(protein.list)[3], "_DOWN")))
+    setNames(c(paste0(newNames[1], "_DOWN"), 
+               paste0(newNames[2], "_DOWN"), 
+               paste0(newNames[3], "_DOWN")))
   
   # library(ComplexHeatmap)
-  pdf(paste0(OUTDIR_DA, "/Sig.Diff.proteins_upset.pdf"), h=3.5, w=6)
+  pdf(paste0(OUTDIR_DA, "/Sig.Diff.proteins_upset.pdf"), h=3.5, w=5)
   m = make_comb_mat(c(protein.list_UP, protein.list_DOWN))
   print(UpSet(m,
         top_annotation = upset_top_annotation(m, add_numbers = TRUE),
         right_annotation = upset_right_annotation(m, add_numbers = TRUE),
         comb_order = rev(order(comb_size(m))),
-        set_order = c(paste0(names(protein.list)[1], "_UP"), 
-                      paste0(names(protein.list)[2], "_UP"), 
-                      paste0(names(protein.list)[3], "_UP"),
-                      paste0(names(protein.list)[1], "_DOWN"), 
-                      paste0(names(protein.list)[2], "_DOWN"), 
-                      paste0(names(protein.list)[3], "_DOWN")),
-        column_title = paste0("Significant proteins\n(adj.P.Val<", padj_thresh, ")")))
+        set_order = c(paste0(newNames[1], "_UP"), 
+                      paste0(newNames[2], "_UP"), 
+                      paste0(newNames[3], "_UP"),
+                      paste0(newNames[1], "_DOWN"), 
+                      paste0(newNames[2], "_DOWN"), 
+                      paste0(newNames[3], "_DOWN")),
+        column_title = paste0("Significant proteins\n(adj.P.Val<", padj_thresh, "&|logFC|>",log2FoldChange_thresh,")")))
 
   invisible(dev.off())
   
   return(list(protein.list_UP=protein.list_UP, protein.list_DOWN=protein.list_DOWN))
 }
 
-log2FoldChange_thresh = 0
+log2FoldChange_thresh = 0.3
 padj_thresh = 0.2
-protein.list = makeUpset(log2FoldChange_thresh, padj_thresh)
+newNames = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
+protein.list = makeUpset(log2FoldChange_thresh, padj_thresh, newNames=newNames)
 
 intersect(protein.list$protein.list_DOWN$CYTOSOLIC_DOWN, protein.list$protein.list_UP$PELLET_UP)
 #"P42766"
@@ -1083,7 +1163,7 @@ lapply(rslt.list, function(r) {
 })
 
 print("Yes, there is, we need to keep the one with the lowest adj.p.value")
-getEntrez = function(rslt.list, sig.level) {
+getEntrez = function(rslt.list, sig.level, logFC.cutoff=0.3) {
   entrez_list_sig = lapply(rslt.list, function(r) {
     universe =  arrange(r, adj.P.Val) %>% .[!duplicated(.[, "Genes"]), ] %>%
       mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
@@ -1091,9 +1171,9 @@ getEntrez = function(rslt.list, sig.level) {
                              multiVals = "first")) %>% 
       filter(!is.na(entrez)) %>% .[, "entrez", drop=T]  
     up = filter(arrange(r, adj.P.Val), adj.P.Val<sig.level) %>%
-      filter(logFC>0)
+      filter(logFC>logFC.cutoff)
     down = filter(arrange(r, adj.P.Val), adj.P.Val<sig.level) %>%
-      filter(logFC<0)
+      filter(logFC< -logFC.cutoff)
     entrez_up = NULL
     if (nrow(up)>0) {
       #Convert gene symbol to Entrez ID
@@ -1122,13 +1202,13 @@ getEntrez = function(rslt.list, sig.level) {
   return(entrez_list_sig)
 }
 
-entrez_list_sig = getEntrez(rslt.list, sig.level=0.2)
+entrez_list_sig = getEntrez(rslt.list, sig.level=0.2, logFC.cutoff=0.3)
 OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
 ```
 
 ```{r}
 # library(clusterProfiler)
-print("KEGG GSEA analysis")
+print("KEGG ORA analysis")
 # library(xlsx)
 runkk = function(entrez_list_sig) {
   kk.sig = lapply(names(entrez_list_sig), function(i) {
@@ -1136,7 +1216,7 @@ runkk = function(entrez_list_sig) {
     #saveRDS(gl, paste0(OUTDIR_ORA, "gl.RDS"))
     up = gl$up %>% as.character()
     down = gl$down %>% as.character()
-    #universe = gl$backgrounGeneList
+    universe = gl$backgrounGeneList
     kk_up = NULL
     if (length(up)>0) {
       set.seed(1234)
@@ -1144,7 +1224,7 @@ runkk = function(entrez_list_sig) {
                          organism = 'hsa',
                          pvalueCutoff = 1,
                          qvalueCutoff = 1,
-                         #universe = universe,
+                         universe = universe,
                          use_internal_data = F)
       print("Convert Entrez ID back to gene symbol")
       source("../src/convertEntrez2Symbol.R")
@@ -1170,7 +1250,7 @@ runkk = function(entrez_list_sig) {
                            organism = 'hsa',
                            pvalueCutoff = 1,
                            qvalueCutoff = 1,
-                           #universe = universe,
+                           universe = universe,
                            use_internal_data = F)
       print("Convert Entrez ID back to gene symbol")
       kk_down@result$geneID_Symbol = 
@@ -1190,7 +1270,7 @@ runkk = function(entrez_list_sig) {
 kk.sig = runkk(entrez_list_sig)
 
 saveRDS(kk.sig, paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
-# outDir = outDir = "../results/rerun/"
+# outDir = "../results/rerun/"
 # OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
 # kk.sig = readRDS(paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
 # lapply(names(kk.sig), function(i) {
@@ -1209,133 +1289,148 @@ saveRDS(kk.sig, paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
 #                append=T)
 #   }
 # })
+
 ```
 
 ### Dotplot showing significant KEGG pathways
 
 ```{r}
+outDir = "../results/rerun/"
+OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
 source("../src/makeDotplot.R")
-p1 = makeDotplot_ORA_KEGG(rslt=kk.sig, index.list=1:2, 
-                       qval.thresh=0.1)
-pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.1.pdf"), h=16.5, w=10)
+p1 = makeDotplot_ORA_KEGG(
+  rslt=setNames(kk.sig,c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")), 
+  index.list=1:2, p.adjust.thresh=0.01)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.01.pdf"), h=2.5, w=8)
 p1
 dev.off()
+rm(p1)
 
-p1 = makeDotplot_ORA_KEGG(kk.sig, index.list=1:2, 
-                       qval.thresh=0.05)
-pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.05.pdf"), h=10, w=10)
+p1 = makeDotplot_ORA_KEGG(
+  setNames(kk.sig,c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")), 
+  index.list=1:2, p.adjust.thresh=0.05)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.05.pdf"), h=3.7, w=9)
 p1
 dev.off()
+rm(p1)
+
+p1 = makeDotplot_ORA_KEGG(
+  setNames(kk.sig,c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")), 
+  index.list=1:2, p.adjust.thresh=0.1)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.1.pdf"), h=6.5, w=9.5)
+p1
+dev.off()
+rm(p1)
+
 ```
 
 ### Check the raw count
 
-```{r}
-print("Because some pathways have opposite regualtion directions: up or down, between CYTOSOL and PELLET")
-print("Therefore we will give a check using raw data here")
-print("For the genes within the ribosome (hsa03010) pathway:")
+```{r, eval=FALSE}
+# print("Because some pathways have opposite regualtion directions: up or down, between CYTOSOL and PELLET")
+# print("Therefore we will give a check using raw data here")
+# print("For the genes within the ribosome (hsa03010) pathway:")
+# 
+# plotProteins_Raw = function(mat, design_matrix, pathway, compartment="CYTOSOLIC",
+#                             regulation.direction="down") {
+#   #saveRDS(list(mat=mat, design_matrix=design_matrix, pathway=pathway, compartment=compartment, regulation.direction=regulation.direction), paste0(OUTDIR_ORA, "all.RDS"))
+#   #all = readRDS(paste0(OUTDIR_ORA, "all.RDS"))
+#   pathway.genes = 
+#     strsplit(kk.sig[[compartment]][[regulation.direction]][pathway, "geneID_Symbol"], "/") %>%
+#       .[[1]] 
+#   #saveRDS(pathway.genes, paste0(OUTDIR_ORA, "pathay.genes.RDS"))
+#   #pathay.genes = readRDS(paste0(OUTDIR_ORA, "pathay.genes.RDS"))
+#   pathway.proteins = dataTable.list_SL_IRS_TMM[[compartment]] %>% 
+#     .[.[, "Genes"] %in% pathway.genes, ] %>%
+#     .[, "Protein_IDs"]
+#   #saveRDS(pathway.proteins, paste0(OUTDIR_ORA, "pathway.proteins.RDS"))
+#   #pathway.proteins = readRDS(paste0(OUTDIR_ORA, "pathway.proteins.RDS"))
+#   #saveRDS(mat, paste0(OUTDIR_ORA, "mat.RDS"))
+#   #mat = readRDS(paste0(OUTDIR_ORA, "mat.RDS"))
+#   nCounts = mat %>% as.data.frame() %>%
+#     gather(-c(Protein_IDs, Gene_names), 
+#            key="sample", value="RawAbundance") %>% 
+#     full_join(design_matrix, by=c("sample")) %>%
+#     filter(Protein_IDs %in% pathway.proteins)
+#   #library(plyr)
+#   #saveRDS(nCounts, paste0(OUTDIR_ORA, "nCounts.RDS"))
+#   #cCounts = readRDS(paste0(OUTDIR_ORA, "nCounts.RDS"))
+#   df = ddply(nCounts, .(Batch, Condition, Protein_IDs), summarize,
+#              mean = round(mean(RawAbundance), 2),
+#              sd = round(sd(RawAbundance), 2)) #%>%
+#     #rename(.,c("RawAbundance" = "mean")) 
+#   df$RawAbundance = df$mean
+#   #df$RawAbundance = exp(df$RawAbundance)
+#   df$Protein_IDs = factor(df$Protein_IDs,
+#                           levels=unique(nCounts$Protein_IDs))
+#   #saveRDS(df, paste0(OUTDIR_ORA, "df.RDS")) 
+#   #df = readRDS(paste0(OUTDIR_ORA, "df.RDS"))
+#   n = length(unique(nCounts$Protein_IDs))
+#   #saveRDS(n, paste0(OUTDIR_ORA, "n.RDS"))
+#   theme_set(theme_bw())
+#   p = ggplot(df, aes(fill=Condition, y=RawAbundance, x=Batch)) + 
+#     geom_bar(position="dodge", stat="identity") + 
+#     labs(y = "Raw abundance") +
+#     #scale_y_log10() +
+#     facet_wrap(~Protein_IDs, nrow=ceiling(n/16),
+#                ncol=ifelse(n>=16, 16, n),
+#                scale="free") +
+#     theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1))  +
+#     geom_errorbar(aes(ymin=RawAbundance-sd, 
+#                       ymax=RawAbundance+sd), 
+#                   width=.2,
+#                   position=position_dodge(.9))+
+#     ggtitle(paste0("Significant proteins")) 
+#   return(list(plot=p, sig.Prot.nr=n))
+# }
 
-plotProteins_Raw = function(mat, design_matrix, pathway, compartment="CYTOSOLIC",
-                            regulation.direction="down") {
-  #saveRDS(list(mat=mat, design_matrix=design_matrix, pathway=pathway, compartment=compartment, regulation.direction=regulation.direction), paste0(OUTDIR_ORA, "all.RDS"))
-  #all = readRDS(paste0(OUTDIR_ORA, "all.RDS"))
-  pathway.genes = 
-    strsplit(kk.sig[[compartment]][[regulation.direction]][pathway, "geneID_Symbol"], "/") %>%
-      .[[1]] 
-  #saveRDS(pathway.genes, paste0(OUTDIR_ORA, "pathay.genes.RDS"))
-  #pathay.genes = readRDS(paste0(OUTDIR_ORA, "pathay.genes.RDS"))
-  pathway.proteins = dataTable.list_SL_IRS_TMM[[compartment]] %>% 
-    .[.[, "Genes"] %in% pathway.genes, ] %>%
-    .[, "Protein_IDs"]
-  #saveRDS(pathway.proteins, paste0(OUTDIR_ORA, "pathway.proteins.RDS"))
-  #pathway.proteins = readRDS(paste0(OUTDIR_ORA, "pathway.proteins.RDS"))
-  #saveRDS(mat, paste0(OUTDIR_ORA, "mat.RDS"))
-  #mat = readRDS(paste0(OUTDIR_ORA, "mat.RDS"))
-  nCounts = mat %>% as.data.frame() %>%
-    gather(-c(Protein_IDs, Gene_names), 
-           key="sample", value="RawAbundance") %>% 
-    full_join(design_matrix, by=c("sample")) %>%
-    filter(Protein_IDs %in% pathway.proteins)
-  #library(plyr)
-  #saveRDS(nCounts, paste0(OUTDIR_ORA, "nCounts.RDS"))
-  #cCounts = readRDS(paste0(OUTDIR_ORA, "nCounts.RDS"))
-  df = ddply(nCounts, .(Batch, Condition, Protein_IDs), summarize,
-             mean = round(mean(RawAbundance), 2),
-             sd = round(sd(RawAbundance), 2)) #%>%
-    #rename(.,c("RawAbundance" = "mean")) 
-  df$RawAbundance = df$mean
-  #df$RawAbundance = exp(df$RawAbundance)
-  df$Protein_IDs = factor(df$Protein_IDs,
-                          levels=unique(nCounts$Protein_IDs))
-  #saveRDS(df, paste0(OUTDIR_ORA, "df.RDS")) 
-  #df = readRDS(paste0(OUTDIR_ORA, "df.RDS"))
-  n = length(unique(nCounts$Protein_IDs))
-  #saveRDS(n, paste0(OUTDIR_ORA, "n.RDS"))
-  theme_set(theme_bw())
-  p = ggplot(df, aes(fill=Condition, y=RawAbundance, x=Batch)) + 
-    geom_bar(position="dodge", stat="identity") + 
-    labs(y = "Raw abundance") +
-    #scale_y_log10() +
-    facet_wrap(~Protein_IDs, nrow=ceiling(n/16),
-               ncol=ifelse(n>=16, 16, n),
-               scale="free") +
-    theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1))  +
-    geom_errorbar(aes(ymin=RawAbundance-sd, 
-                      ymax=RawAbundance+sd), 
-                  width=.2,
-                  position=position_dodge(.9))+
-    ggtitle(paste0("Significant proteins")) 
-  return(list(plot=p, sig.Prot.nr=n))
-}
+# dir.create(paste0(OUTDIR_ORA, "/Checking/"), 
+#            showWarnings = F,
+#            recursive = T)
+# print("For ribosome pathway (hsa03010)")
+# pathway = "hsa03010"
+# compartment = "CYTOSOLIC"
+# mat = dataTable.list1[[compartment]]
+# print("Check the data with the raw data table ´Data result_PELLETS (CPJS05122201-02).xlsx´")
+# #head(mat)
+# print("It seems the same!")
+# design_matrix = design.table.list[[compartment]]
+# regulation.direction= "down"
+# plotPathwayProt = plotProteins_Raw(mat, design_matrix, 
+#                                    pathway, 
+#                                    compartment=compartment,
+#                                    regulation.direction=regulation.direction)
+# n = plotPathwayProt$sig.Prot.nr
+# h=ceiling(n/16)*1.5+1
+# w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
+# pdf(paste0(OUTDIR_ORA, "/Checking/", 
+#            pathway,"_",compartment,".pdf"), 
+#     h=h, w=w)
+#   print(plotPathwayProt$plot)
+# dev.off()
 
-
-dir.create(paste0(OUTDIR_ORA, "/Checking/"), 
-           showWarnings = F,
-           recursive = T)
-print("For ribosome pathway (hsa03010)")
-pathway = "hsa03010"
-compartment = "CYTOSOLIC"
-mat = dataTable.list1[[compartment]]
-print("Check the data with the raw data table ´Data result_PELLETS (CPJS05122201-02).xlsx´")
-#head(mat)
-print("It seems the same!")
-design_matrix = design.table.list[[compartment]]
-regulation.direction= "down"
-plotPathwayProt = plotProteins_Raw(mat, design_matrix, 
-                                   pathway, 
-                                   compartment=compartment,
-                                   regulation.direction=regulation.direction)
-n = plotPathwayProt$sig.Prot.nr
-h=ceiling(n/16)*1.5+1
-w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
-pdf(paste0(OUTDIR_ORA, "/Checking/", 
-           pathway,"_",compartment,".pdf"), 
-    h=h, w=w)
-  print(plotPathwayProt$plot)
-dev.off()
-
-compartment = "PELLET"
-mat = dataTable.list1[[compartment]]
-print("Check the data with the raw data table ´Data result_PELLETS (CPJS05122201-02).xlsx´")
-#head(mat)
-print("It seems the same!")
-design_matrix = design.table.list[[compartment]]
-regulation.direction = "up"
-plotPathwayProt = plotProteins_Raw(mat, design_matrix, 
-                                   pathway, 
-                                   compartment=compartment,
-                                   regulation.direction=regulation.direction)
-n = plotPathwayProt$sig.Prot.nr
-h=ceiling(n/16)*1.5+1
-w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
-pdf(paste0(OUTDIR_ORA, "/Checking/", 
-           pathway,"_",compartment,".pdf"), 
-    h=h, w=w)
-  print(plotPathwayProt$plot)
-dev.off()
-print("Again the raw data also show opposite gene expression pattern 
-      between Cytosolic and Pellet compartments")
-print("Note: in the plot, NA: pooled samples/deleted samples")
+# compartment = "PELLET"
+# mat = dataTable.list1[[compartment]]
+# print("Check the data with the raw data table ´Data result_PELLETS (CPJS05122201-02).xlsx´")
+# #head(mat)
+# print("It seems the same!")
+# design_matrix = design.table.list[[compartment]]
+# regulation.direction = "up"
+# plotPathwayProt = plotProteins_Raw(mat, design_matrix, 
+#                                    pathway, 
+#                                    compartment=compartment,
+#                                    regulation.direction=regulation.direction)
+# n = plotPathwayProt$sig.Prot.nr
+# h=ceiling(n/16)*1.5+1
+# w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
+# pdf(paste0(OUTDIR_ORA, "/Checking/", 
+#            pathway,"_",compartment,".pdf"), 
+#     h=h, w=w)
+#   print(plotPathwayProt$plot)
+# dev.off()
+# print("Again the raw data also show opposite gene expression pattern 
+#       between Cytosolic and Pellet compartments")
+# print("Note: in the plot, NA: pooled samples/deleted samples")
 ```
 
 ### Look into genes associated with pathways of interest
@@ -1363,44 +1458,49 @@ entrez_list = lapply(rslt.list, function(r) {
 })
 
 print("Show the genes in the upregulated pathways for PELLET:")
-lapply(kk.sig$PELLET$up@result %>% 
-         filter(qvalue < 0.1) %>% 
-         .[, "ID"], function(pathway) {
-  node.sum = "sum"
-  dir.create(paste0(OUTDIR_ORA, "/Pellet"), showWarnings = F)
-  h = pathview(gene.data=entrez_list$PELLET, 
-                   kegg.dir = paste0(OUTDIR_ORA, "/Pellet/"),
-                   expand.node = TRUE, kegg.native=T,
-                   pathway.id=pathway, node.sum=node.sum,
-                   species="hsa", both.dirs = T, same.layer = F,
-                   limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1))
-  file.copy(from = paste0("./", pathway, ".pathview.png"),
-          to   = paste0(OUTDIR_ORA, "/Pellet/"))
-  file.remove(paste0("./", pathway, ".pathview.png"))
-  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".png"))
-  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".xml"))
-})
+if(!is.null(kk.sig$PELLET$up)) {
+  lapply(kk.sig$PELLET$up@result %>% 
+           filter(qvalue < 0.1) %>% 
+           .[, "ID"], function(pathway) {
+    node.sum = "sum"
+    dir.create(paste0(OUTDIR_ORA, "/Pellet"), showWarnings = F)
+    h = pathview(gene.data=entrez_list$PELLET, 
+                     kegg.dir = paste0(OUTDIR_ORA, "/Pellet/"),
+                     expand.node = TRUE, kegg.native=T,
+                     pathway.id=pathway, node.sum=node.sum,
+                     species="hsa", both.dirs = T, same.layer = F,
+                     limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1))
+    file.copy(from = paste0("./", pathway, ".pathview.png"),
+            to   = paste0(OUTDIR_ORA, "/Pellet/"))
+    file.remove(paste0("./", pathway, ".pathview.png"))
+    #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".png"))
+    #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".xml"))
+  })  
+}
+
 
 print("Show the genes in the downregulated pathways for PELLET:")
-lapply(kk.sig$PELLET$down@result %>% 
-         filter(qvalue < 0.1) %>% 
-         .[, "ID"], function(pathway) {
-  #print(pathway)
-  node.sum = "sum"
-  dir.create(paste0(OUTDIR_ORA, "/Pellet"), showWarnings = F)
-  h = try(pathview(gene.data=entrez_list$PELLET, 
-                   kegg.dir = paste0(OUTDIR_ORA, "/Pellet/"),
-                   expand.node = TRUE, kegg.native=T,
-                   pathway.id=pathway, node.sum=node.sum,
-                   species="hsa", both.dirs = T, same.layer = F,
-                   limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1)),
-           TRUE)
-  try(file.copy(from = paste0("./", pathway, ".pathview.png"),
-          to   = paste0(OUTDIR_ORA, "/Pellet/")), TRUE)
-  try(file.remove(paste0("./", pathway, ".pathview.png")), TRUE)
-  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".png"))
-  #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".xml"))
-})
+if(!is.null(kk.sig$PELLET$up)) {
+  lapply(kk.sig$PELLET$down@result %>% 
+           filter(qvalue < 0.1) %>% 
+           .[, "ID"], function(pathway) {
+    #print(pathway)
+    node.sum = "sum"
+    dir.create(paste0(OUTDIR_ORA, "/Pellet"), showWarnings = F)
+    h = try(pathview(gene.data=entrez_list$PELLET, 
+                     kegg.dir = paste0(OUTDIR_ORA, "/Pellet/"),
+                     expand.node = TRUE, kegg.native=T,
+                     pathway.id=pathway, node.sum=node.sum,
+                     species="hsa", both.dirs = T, same.layer = F,
+                     limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1)),
+             TRUE)
+    try(file.copy(from = paste0("./", pathway, ".pathview.png"),
+            to   = paste0(OUTDIR_ORA, "/Pellet/")), TRUE)
+    try(file.remove(paste0("./", pathway, ".pathview.png")), TRUE)
+    #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".png"))
+    #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".xml"))
+  })
+}
 
 print("Show the genes in the upregulated pathways for CYTOSOLIC:")
 lapply(kk.sig$CYTOSOLIC$up@result %>% 
@@ -1415,7 +1515,7 @@ lapply(kk.sig$CYTOSOLIC$up@result %>%
                    species="hsa", both.dirs = T, same.layer = F,
                    limit = list(gene=max(abs(entrez_list$PELLET)), cpd=1))
   file.copy(from = paste0("./", pathway, ".pathview.png"),
-          to   = paste0(OUTDIR_ORA, "/Cytosolic/"))
+          to = paste0(OUTDIR_ORA, "/Cytosolic/"))
   file.remove(paste0("./", pathway, ".pathview.png"))
   #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".png"))
   #file.remove(paste0(OUTDIR_ORA, "/Pellet/", pathway, ".xml"))
@@ -1462,10 +1562,90 @@ print("/11224/6139/23521/6141/6143/6154/6165/9349")
 In native KEGG view, a gene node may represent multiple genes/proteins with similar or redundant functional role. The number of member genes range from 1 up to several tens. They are intentionally put together as a single node on pathway graphs for better clarity and readability. Therefore, we do not split node and mark each member genes separately by default. But rather we visualize the node-wise data by summarize gene-wise data, users may specify the summarization method using node.sum arguement. Poential options include "sum","mean", "median", "max", "max.abs" and "random". Default node.sum="sum". Here, we used default "sum".
 :::
 
+### Visualize Spliceosome proteins
+
+```{r, fig.height=10, fig.width=10}
+OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
+kk.sig = readRDS(paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
+Spliceosome_genes = kk.sig$PELLET$up@result %>% 
+  filter(Description=="Spliceosome") %>%
+  pull(geneID_Symbol) %>% stringr::str_split(., "/") %>% .[[1]]
+
+# Design
+design = readr::read_table("../data/design_7314/design_PELLET.tsv")
+design
+
+# Normalized protein abundance
+Insoluble_Nintensity = read_excel(
+    paste0("../results/rerun/QC/NormalizedIntensity.xlsx"), 
+                  sheet=2, col_names=TRUE, na="", skip=0) %>%
+    filter(Genes %in% Spliceosome_genes) %>%
+    gather("sample", "Norm.intensity", -Genes, -Gene_names, -Protein_IDs) %>%
+    full_join(design)
+Insoluble_Nintensity$Condition = ifelse(Insoluble_Nintensity$Condition=="case", "AUD", "UC")
+
+# Get p value
+OUTDIR_QC = paste0(outDir, "/QC/")
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+dataTable.list_SL_IRS_TMM =
+  readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+  read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+  }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+P = rslt.list$PELLET %>% filter(Genes %in% Spliceosome_genes) %>% 
+  .[, c("Protein_IDs", "P.Value", "adj.P.Val")]
+
+Insoluble_Nintensity = Insoluble_Nintensity %>% full_join(P)
+Insoluble_Nintensity$Protein_IDs_P.Value =
+  paste0(Insoluble_Nintensity$Protein_IDs, "\n(P.Value=", 
+         round(Insoluble_Nintensity$P.Value, 4), ")")
+Insoluble_Nintensity$Protein_IDs_adj.P.Val =
+  paste0(Insoluble_Nintensity$Protein_IDs, "\n(adj.P.Val=", 
+         round(Insoluble_Nintensity$adj.P.Val, 4), ")")
+
+theme_set(theme_bw())
+P1 = ggplot(Insoluble_Nintensity, aes(x=Condition, y=Norm.intensity)) +
+  geom_violin(aes(fill=Condition)) + 
+  facet_wrap(~Protein_IDs_P.Value, ncol=5, scale="free") +
+  # stat_pvalue_manual(Insoluble_Nintensity, label = "P.Value") +
+  geom_boxplot(width=0.1) +
+  geom_point(position = position_jitter(seed = 1, width = 0.2))
+  #geom_dotplot(binaxis='y', stackdir='center', dotsize=1)
+
+P1
+
+theme_set(theme_bw())
+P2 = ggplot(Insoluble_Nintensity, aes(x=Condition, y=Norm.intensity)) +
+  geom_violin(aes(fill=Condition)) + 
+  facet_wrap(~Protein_IDs_adj.P.Val, ncol=5, scale="free") +
+  # stat_pvalue_manual(Insoluble_Nintensity, label = "P.Value") +
+  geom_boxplot(width=0.1) +
+  geom_point(position = position_jitter(seed = 1, width = 0.2))
+  #geom_dotplot(binaxis='y', stackdir='center', dotsize=1)
+
+P2
+
+dir.create(paste0(OUTDIR_ORA, "/Spliceosome/"), showWarnings = F,
+          recursive = T)
+pdf(paste0(OUTDIR_ORA, "/Spliceosome/Spliceosome_proteins.pdf"), 
+    h=6, w=10)
+  P1
+  P2
+dev.off()
+
+```
+
 # Pathway analysis on all three compartments together
 
 ```{r}
-entrez_list_sig2 = getEntrez(rslt.list, sig.level=0.2)
+# OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+# rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+#   read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+#                  sheet=1, col_names=TRUE, na="", skip=0)
+# }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+entrez_list_sig2 = getEntrez(rslt.list, sig.level=0.2, logFC.cutoff=0.3)
 UP = c()
 DOWN = c()
 for (i in entrez_list_sig2) {
@@ -1473,24 +1653,97 @@ for (i in entrez_list_sig2) {
   DOWN = c(DOWN, i$down) %>% .[unique(names(.))]
 }
 
-entrez_list_sig_all = list(all=list(up=UP, down=DOWN))
+entrez_list_sig_all = list(ALL=list(up=UP, down=DOWN))
 kk.sig_all = runkk(entrez_list_sig_all)
 
 source("../src/makeDotplot.R")
 p1 = makeDotplot_ORA_KEGG(rslt=kk.sig_all, index.list=1, 
-                       qval.thresh=0.1)
-pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.1_all.pdf"), h=9, w=8)
+                       p.adjust=0.1)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.1_all.pdf"), 
+    h=3, w=6.5)
 p1
 dev.off()
 
 p1 = makeDotplot_ORA_KEGG(kk.sig_all, index.list=1, 
-                       qval.thresh=0.05)
-pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.05_all.pdf"), h=6, w=8)
+                       p.adjust=0.05)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.05_all.pdf"), 
+    h=2.5, w=6.5)
 p1
 dev.off()
+
+p1 = makeDotplot_ORA_KEGG(kk.sig_all, index.list=1, 
+                       p.adjust=0.01)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.01_all.pdf"), 
+    h=2.5, w=6.5)
+p1
+dev.off()
+
+
 ```
 
 **As you can see that, when combining the significant up and down regulated differential proteins from all three compartments, the pathways got are not as relevant as that of DIABLO, which is probably because this strategy does not account for interactions between different datasets, and is very probably biased toward certain dataset/s.**
+
+# GSEA analysis on Synaptosomal DEGs using SynGO
+
+```{r}
+outDir = "../results/rerun/"
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+i = "SYNAPTOSOMAL"
+rslt_syn = read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0) %>%
+  mutate(Entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                         column = "ENTREZID", keytype = "SYMBOL", 
+                         multiVals = "first") %>% as.character()) %>%
+  select(Protein_IDs, Genes, Entrez, everything())
+
+# synGO
+synGO = read.xlsx2("../data/SynGO_bulk_download_release_20231201/syngo_ontologies.xlsx",
+                   sheetName = "Sheet 1", header=T) #%>% filter(domain=="BP")
+syn_ref = split(synGO$hgnc_symbol, synGO$name) %>% 
+  lapply(., function(s) {
+    strsplit(s, ", ")[[1]] %>% unique()
+  })
+gene_rank = setNames(rslt_syn$logFC, rslt_syn$Genes) %>% 
+  sort(., decreasing=T) %>% .[!duplicated(names(.))] %>% .[!is.na(names(.))]
+  
+library(fgsea)
+set.seed(123)
+fgseaRes = fgsea(pathways = syn_ref, stats = gene_rank, minSize = 5, maxSize = 500) %>% 
+  arrange(padj) #%>% filter(padj<0.05) 
+fgseaRes$name = fgseaRes$pathway
+fgseaRes = fgseaRes %>% left_join(synGO)
+fgseaRes$pathway = sapply(fgseaRes$pathway, function(p) {strsplit(p, "[(]")[[1]][1]})
+fgseaRes$pathway = factor(fgseaRes$pathway, levels=rev(fgseaRes$pathway))
+
+fgseaRes4Plotting = fgseaRes %>% filter(padj<0.05)
+P = ggplot(fgseaRes4Plotting, aes(y=pathway, x=NES)) +
+  geom_point(shape=21, aes(size=padj), fill="purple") +
+  ggtitle("GSEA-SynGO") +
+  xlab("Normalized Enrichment Score") +
+  ylab("") + labs(size="padj") +
+  theme_bw(base_size = 15) + 
+  scale_size(trans="reverse") +
+  guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
+  theme(strip.text.x = element_text(size = 14)) +
+  labs(caption="p.adjust <= 0.05 & 5<=setSize<=500")
+
+dir.create(paste0(OUTDIR_DA, "/SynGO/"), recursive=T, showWarnings = F)
+pdf("../results/rerun/PathwayAnalysis/SynGO/Dotplot_enriched_SynGO.pdf", h=3, w=6)
+P
+dev.off()
+P
+
+write.xlsx2(fgseaRes, "../results/rerun/PathwayAnalysis/SynGO/Enriched_SynGO.xlsx", 
+            col.names = T, row.names = F)
+# fgseaRes = openxlsx::read.xlsx("../results/rerun/PathwayAnalysis/SynGO/Dotplot_enriched_SynGO.xlsx")
+
+# knit in R notebooks:
+output = capture.output({
+  sessionInfo()
+})
+writeLines(output, "../results/rerun/PathwayAnalysis/SynGO/sessionInfo.txt")
+
+```
 
 # Drug target analysis
 
@@ -1500,13 +1753,21 @@ library(enrichR)
 listEnrichrSites()
 
 # Select drug related databases:
-dbs <- c("LINCS_L1000_Chem_Pert_Consensus_Sigs", 
+dbs = c("LINCS_L1000_Chem_Pert_Consensus_Sigs", 
          "Proteomics_Drug_Atlas_2023", "DSigDB", 
          "MAGMA_Drugs_and_Diseases", "IDG_Drug_Targets_2022")
 # EnrichR analysis for all up/down regulated genes in alcoholism
+backgrounds = lapply(names(entrez_list_sig), function(i) {
+    gl = entrez_list_sig[[i]]
+    gl$backgrounGeneList
+    }) %>% unlist() %>% unique()
+
 pdf(paste0(OUTDIR_ORA, "/DrugTargets/EnrichR_top_drug_sets.pdf"))
 lapply(c("up", "down"), function(i) {
-  enriched <- invisible(enrichr(names(entrez_list_sig_all[[1]][[i]]), dbs))
+  enriched = invisible(
+    enrichr(names(entrez_list_sig_all[[1]][[i]]), dbs))
+            #background=backgrounds
+            
   for (d in dbs) {
     if (nrow(enriched[[d]])>0) {
       #options(java.parameters = "-Xmx1000m")
@@ -1528,11 +1789,44 @@ invisible(dev.off())
 
 **I would rather use the Target analysis results from the DIABLO, rather than from here**
 
+## Drug target analysis on Spliceosome genes
 
 ```{r}
-sink(paste0(OUTDIR_ORA, "/seesionInfo.txt"))
-print(sessionInfo())
-sink()
+OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
+kk.sig = readRDS(paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
+Spliceosome_genes = kk.sig$PELLET$up@result %>% 
+  filter(Description=="Spliceosome") %>%
+  pull(geneID_Symbol) %>% stringr::str_split(., "/") %>% .[[1]]
+
+Spliceosome_genes_entrez = mapIds(org.Hs.eg.db, keys = Spliceosome_genes, 
+                           column = "ENTREZID", keytype = "SYMBOL", 
+                           multiVals = "first")
+
+dbs = c("LINCS_L1000_Chem_Pert_Consensus_Sigs", 
+         "Proteomics_Drug_Atlas_2023", "DSigDB", 
+         "MAGMA_Drugs_and_Diseases", "IDG_Drug_Targets_2022")
+
+enriched = invisible(enrichr(Spliceosome_genes_entrez, dbs))
+for (d in dbs) {
+    if (nrow(enriched[[d]])>0) {
+      #options(java.parameters = "-Xmx1000m")
+      # Plot
+      print(plotEnrich(enriched[[d]], showTerms = 20, numChar = 40, 
+                 y = "Count", orderBy = "P.value", 
+                 title=paste0(d, "_", i)))
+}}
+# Nothing is significant
+
+Spliceosome_genes
+# "ALYREF", "EFTUD2", "DDX23",  "RBM25",  "SNRNP200", "CDC5L",  "LSM3", "SNRPD3", "PRPF8", "BCAS2", "HNRNPC", "U2AF1", "SNRPA1", "RBM8A", "SF3A1", "SF3B1", "SF3B3", "SF3B2", "SF3A2", "U2SURP", "PRPF19", "PRPF6", "RBMX", "SF3A3", "DDX46"
+
+# DrugBank, ChEMBL
+```
+
+```{r}
+out = capture.output(sessionInfo())
+writeLines(out, paste0(OUTDIR_ORA, "/seesionInfo.txt"))
+sessionInfo()
 ```
 
 # Deliverables

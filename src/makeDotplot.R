@@ -1,7 +1,7 @@
 #' @param rslt pathway analysis result list
 #
 makeDotplot_ORA_KEGG = function(rslt, index.list=1:2, 
-                       qval.thresh=0.1) {
+                       p.adjust.thresh=0.1) {
   
   print("Combine the ORA result to a long table...")
   if (is_empty(index.list)) {
@@ -17,18 +17,18 @@ makeDotplot_ORA_KEGG = function(rslt, index.list=1:2,
                                     Count_reg=-Count,
                                     Condition=names(rslt1)[i])
     r = rbind(up, down) %>% 
-      dplyr::select(Condition, Regulation, Count_reg, qvalue, everything()) %>%
-      filter(qvalue<qval.thresh)
+      dplyr::select(Condition, Regulation, Count_reg, p.adjust, everything()) %>%
+      filter(p.adjust<p.adjust.thresh)
     r
   }) %>% Reduce(full_join, .)
   
   print("Sort the pathways to shared and unique...")
   pathway.list_up = lapply(rslt1, function(r) {
-    r$up@result %>% filter(qvalue<qval.thresh) %>% 
+    r$up@result %>% filter(p.adjust<p.adjust.thresh) %>% 
       .[, "Description"]
   })
   pathway.list_down = lapply(rslt1, function(r) {
-    r$down@result %>% filter(qvalue<qval.thresh) %>% 
+    r$down@result %>% filter(p.adjust<p.adjust.thresh) %>% 
       .[, "Description"]
   })
   pathway.list = mapply(function(x,y) c(x,y),
@@ -46,16 +46,16 @@ makeDotplot_ORA_KEGG = function(rslt, index.list=1:2,
                               levels = rev(pathways.sorted))
   
   p = ggplot(data=table.long, mapping=aes_string(x="Count_reg", y="Description")) +
-    geom_point(shape=21, aes(size=qvalue, fill=Regulation)) +
+    geom_point(shape=21, aes(size=p.adjust, fill=Regulation)) +
     facet_wrap(~Condition, ncol=3) + 
-    ggtitle("ORA_KEGG") +
+    # ggtitle("ORA_KEGG") +
     xlab("Count") +
-    ylab("") + labs(size="qvalue") +
-    scale_fill_manual(values=c("#6D6D6D", "#B32B16")) +
+    ylab("") + labs(size="p.adjust") +
+    scale_fill_manual(values=c("DOWN"="#6D6D6D", "UP"="#B32B16")) +
     theme_bw(base_size = 15) + 
     scale_size(trans="reverse") +
     guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
     theme(strip.text.x = element_text(size = 14)) +
-    labs(caption=paste0("qvalueCutoff = ", qval.thresh, ", pAdjustMethod = fdr"))
+    labs(caption=paste0("p.adjust.cutoff = ", p.adjust.thresh, ", pAdjustMethod = fdr"))
   return(p)
 }

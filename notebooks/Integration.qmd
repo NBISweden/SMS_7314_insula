@@ -658,27 +658,27 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh) {
       .[.>0] %>% names()
     list(up, down)
   })
-  
+  compartments_new = c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL")
   protein.list_UP = c(protein.list[[1]][1], protein.list[[2]][1], 
                       protein.list[[3]][1], Diablo.features[[1]][1],
                       Diablo.features[[2]][1],
                       Diablo.features[[3]][1]) %>% 
-    setNames(c(paste0(names(protein.list)[1], "_UP_sig"), 
-               paste0(names(protein.list)[2], "_UP_sig"), 
-               paste0(names(protein.list)[3], "_UP_sig"),
-               paste0(names(protein.list)[1], "_UP_Dib"), 
-               paste0(names(protein.list)[2], "_UP_Dib"), 
-               paste0(names(protein.list)[3], "_UP_Dib")))
+    setNames(c(paste0(compartments_new[1], "_UP_Limma"), 
+               paste0(compartments_new[2], "_UP_Limma"), 
+               paste0(compartments_new[3], "_UP_Limma"),
+               paste0(compartments_new[1], "_UP_Diablo"), 
+               paste0(compartments_new[2], "_UP_Diablo"), 
+               paste0(compartments_new[3], "_UP_Diablo")))
   protein.list_DOWN = c(protein.list[[1]][2], protein.list[[2]][2], 
                         protein.list[[3]][2], Diablo.features[[1]][2],
                       Diablo.features[[2]][2],
                       Diablo.features[[3]][2]) %>% 
-    setNames(c(paste0(names(protein.list)[1], "_DOWN_sig"), 
-               paste0(names(protein.list)[2], "_DOWN_sig"), 
-               paste0(names(protein.list)[3], "_DOWN_sig"),
-               paste0(names(protein.list)[1], "_DOWN_Dib"), 
-               paste0(names(protein.list)[2], "_DOWN_Dib"), 
-               paste0(names(protein.list)[3], "_DOWN_Dib")))
+    setNames(c(paste0(compartments_new[1], "_DN_Limma"), 
+               paste0(compartments_new[2], "_DN_Limma"), 
+               paste0(compartments_new[3], "_DN_Limma"),
+               paste0(compartments_new[1], "_DN_Diablo"), 
+               paste0(compartments_new[2], "_DN_Diablo"), 
+               paste0(compartments_new[3], "_DN_Diablo")))
   
   # library(ComplexHeatmap)
   pdf(paste0(OUTDIR, "/selectedProteins/Sig.Diff._Diablo_proteins_upset_comp1.pdf"), h=4, w=7)
@@ -687,18 +687,18 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh) {
         top_annotation = upset_top_annotation(m, add_numbers = TRUE),
         right_annotation = upset_right_annotation(m, add_numbers = TRUE),
         comb_order = rev(order(comb_size(m))),
-        set_order = c(paste0(names(protein.list)[1], "_UP_sig"), 
-                      paste0(names(protein.list)[2], "_UP_sig"), 
-                      paste0(names(protein.list)[3], "_UP_sig"),
-                      paste0(names(protein.list)[1], "_UP_Dib"), 
-                      paste0(names(protein.list)[2], "_UP_Dib"), 
-                      paste0(names(protein.list)[3], "_UP_Dib"),
-                      paste0(names(protein.list)[1], "_DOWN_sig"), 
-                      paste0(names(protein.list)[2], "_DOWN_sig"), 
-                      paste0(names(protein.list)[3], "_DOWN_sig"),
-                      paste0(names(protein.list)[1], "_DOWN_Dib"), 
-                      paste0(names(protein.list)[2], "_DOWN_Dib"), 
-                      paste0(names(protein.list)[3], "_DOWN_Dib")),
+        set_order = c(paste0(compartments_new[1], "_UP_Limma"), 
+                      paste0(compartments_new[2], "_UP_Limma"), 
+                      paste0(compartments_new[3], "_UP_Limma"),
+                      paste0(compartments_new[1], "_UP_Diablo"), 
+                      paste0(compartments_new[2], "_UP_Diablo"), 
+                      paste0(compartments_new[3], "_UP_Diablo"),
+                      paste0(compartments_new[1], "_DN_Limma"), 
+                      paste0(compartments_new[2], "_DN_Limma"), 
+                      paste0(compartments_new[3], "_DN_Limma"),
+                      paste0(compartments_new[1], "_DN_Diablo"), 
+                      paste0(compartments_new[2], "_DN_Diablo"), 
+                      paste0(compartments_new[3], "_DN_Diablo")),
         column_title = paste0("")))
 
   invisible(dev.off())
