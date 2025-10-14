@@ -224,7 +224,7 @@ outDir = "../results/rerun/"
 OUTDIR_QC = paste0(outDir, "/QC/")
 dataTable.list_SL_IRS_TMM =
   readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
-NAMES = c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL")
+NAMES = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
 
 
 # ORA
@@ -234,6 +234,7 @@ SupplG = lapply(1:3, function(i) {
   d$Fraction = NAMES[i]
   d
 }) %>% setNames(NAMES) %>% Reduce(rbind, .)
+SupplG$Fraction[SupplG$Fraction=="PELLET"] = "NUCLEAR"
 
 # Limma
 OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
@@ -246,6 +247,7 @@ for (i in seq_along(rslt.list)) {
   rslt.list[[i]]$Fraction = names(rslt.list)[i] 
 }
 SuppA = Reduce(rbind, rslt.list)
+SuppA$Fraction[SuppA$Fraction=="PELLET"] = "NUCLEAR"
 
 OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
 ORA.list = lapply(1:2, function(j) {
@@ -262,15 +264,21 @@ ORA.list = lapply(1:2, function(j) {
   rbind(A,B)
 })
 SupplB = Reduce(rbind, ORA.list)
+SupplB$Fraction[SupplB$Fraction=="PELLET"] = "NUCLEAR"
+
 SupplC1 = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_all.xlsx"),
                  sheet=1, col_names=TRUE, na="", skip=0)
 SupplC1$Fraction = "All"
 SupplC1$Regulation = "Up"
+
+
 SupplC2 = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_all.xlsx"),
                  sheet=2, col_names=TRUE, na="", skip=0)
 SupplC2$Fraction = "All"
 SupplC2$Regulation = "Down"
+
 SupplC = rbind(SupplC1, SupplC2)
+
 SupplB = rbind(SupplB, SupplC)
 
 
@@ -279,20 +287,24 @@ SupplB = rbind(SupplB, SupplC)
 ## Feature loading
 SupplH = read_excel("../results/rerun/plsDA/pathwayAnalysis/top_loading_proteins_used4ORA.xlsx")
 colnames(SupplH) = c("ID", colnames(SupplH)[2:ncol(SupplH)])
+
+
 ## pls-DA ORA
-SupplI = lapply(seq_along(c(NAMES, "all")), function(i) {
-  N = stringr::str_to_title(c(NAMES, "all"))[i]
+NAMES2 = c("Synaptosomal", "Insoluble", "Cytosolic")
+SupplI = lapply(seq_along(c(NAMES2, "all")), function(i) {
+  N = stringr::str_to_title(c(NAMES2, "ALL FRAC."))[i]
   up = read_excel(paste0("../results/rerun/plsDA/pathwayAnalysis/KEGG_ORA_", N, ".xlsx"),
                  sheet=1, col_names=TRUE, na="", skip=0)
   up$Reg = "Up(in AUD)"
-  up$Fraction = c(NAMES, "ALL")[i]
+  up$Fraction = c(NAMES, "ALL FRAC.")[i]
   dn = read_excel(paste0("../results/rerun/plsDA/pathwayAnalysis/KEGG_ORA_", N, ".xlsx"),
                  sheet=2, col_names=TRUE, na="", skip=0)
   dn$Reg = "Down(in AUD)"
-  dn$Fraction = c(NAMES, "ALL")[i]
+  dn$Fraction = c(NAMES, "ALL FRAC.")[i]
   rbind(up, dn)
 }) %>% Reduce(rbind, .)
-
+table(SupplI$Fraction)
+SupplI$Fraction[SupplI$Fraction=="PELLET"] = "NUCLEAR"
 
 
 # DIABLO
@@ -310,6 +322,9 @@ SupplJ = lapply (comps, function(c) {
     d
   }) %>% Reduce(rbind, .)
 }) %>% Reduce(rbind, .)
+SupplJ$Fraction[SupplJ$Fraction=="PELLET"] = "NUCLEAR"
+
+
 
 ## DIABLO_ORA
 SupplK = lapply(seq_along(c("up", "down")), function(i) {
@@ -320,13 +335,17 @@ SupplK = lapply(seq_along(c("up", "down")), function(i) {
   # d$Analysis = "Diablo"
   d
 }) %>% Reduce(rbind, .)
+colnames(SupplK)
 
 
+
+
+
+##########################################################
 
 # Drug targets
-
 dbs <- c("DSigDB", 
-         "MAGMA_Drugs_and_Diseases", "IDG_Drug_Targets_2022")
+         "MAGMA_Drugs_and_Diseases") #, "IDG_Drug_Targets_2022"
 OUTDIR_diff_DRAG = "/Users/ekol-yal/Documents/Project/2024/SMS_7314_insula/results/rerun/PathwayAnalysis/ORA/DrugTargets/"
 i= "up"
 up = lapply (dbs, function(d) {
@@ -351,7 +370,7 @@ table(SupplD$DataBase)
 
 
 dbs <- c("DSigDB", 
-         "MAGMA_Drugs_and_Diseases", "IDG_Drug_Targets_2022")
+         "MAGMA_Drugs_and_Diseases") # , "IDG_Drug_Targets_2022"
 OUTDIR_DIABLO_DRAG = "/Users/ekol-yal/Documents/Project/2024/SMS_7314_insula/results/rerun/Integration/DIABLO/DrugTargets/"
 i= "up"
 up = lapply (dbs, function(d) {
@@ -375,8 +394,9 @@ table(SupplF$DataBase)
 
 
 # Drug repurposing analysis ***NEW
-SupplO = read_excel("../results/rerun/Additional/DrugTarget_L1000/onlyMatureNeuron/perturbagen_candidates_OnlyStrongDrugSignatures.xlsx",
+SupplO = read_excel("../results/rerun/Additional/DrugTarget_L1000/onlyMatureNeuron/L1000SignatureScoreCutoff2/perturbagen_candidates_OnlyStrongDrugSignatures.xlsx",
                  sheet=1, col_names=TRUE, na="", skip=0)
+SupplO$Fraction[SupplO$Fraction=="INSOLUBLE"] = "NUCLEAR"
 
 # Design Table
 library(tidyverse)
@@ -391,6 +411,8 @@ design.table2 = lapply(seq_along(design.table.list), function(i) {
   m
 }) %>% Reduce(rbind, .)
 
+design.table2$Fraction[design.table2$Fraction=="PELLET"] = "NUCLEAR" ###
+
 # Differential alternative splicing analysis
 ## Only the most significant equivalence class pair for each protein
 SupplL = lapply(seq_along(NAMES_old), function(i) {
@@ -401,6 +423,8 @@ SupplL = lapply(seq_along(NAMES_old), function(i) {
   d$fraction = NAMES[i]
   d
 }) %>% Reduce(rbind, .)
+SupplL = SupplL %>% mutate(Fraction = gsub("PELLET", "NUCLEAR", fraction)) %>% 
+    select(-fraction)
 
 ## All significant equivalence class pairs for MAP2  
 SupplM = lapply(seq_along(NAMES_old), function(i) {
@@ -420,6 +444,7 @@ SupplN = readr::read_tsv(
 ## Celltype analysis
 SupplT = read_excel("../results/rerun/Celltype/CellType_prediction_GSEA.xlsx",
                  sheet=1, col_names=TRUE, na="", skip=0)
+SupplT = SupplT %>% mutate(Fraction = gsub("INSOLUBLE", "NUCLEAR", Fraction))
 
 ## Translocation indices
 SupplW = read.table("../results/rerun/Translocation/TranslocaitonIndex.csv",
@@ -427,7 +452,7 @@ SupplW = read.table("../results/rerun/Translocation/TranslocaitonIndex.csv",
 colnames(SupplW) = gsub("X", "", colnames(SupplW))
 
 ## GSEA with SynGO on synaptosomal differential result
-SupplSS = openxlsx::read.xlsx("../results/rerun/PathwayAnalysis/SynGO/Dotplot_enriched_SynGO.xlsx")
+SupplSS = openxlsx::read.xlsx("../results/rerun/PathwayAnalysis/SynGO/Enriched_SynGO.xlsx")
 
 
 ## Translocation indices limma results
@@ -443,9 +468,12 @@ SupplV = lapply(seq_along(SupplV.list), function(i) {
 
 ## GSEA result on Translocation indices using SynGO
 SupplX.list = readRDS("../results/rerun/Translocation//GSEA/SynGO/GSEA_output_wSynGO.RDS")
-X = SupplX.list[["C2S"]]$fgseaRes
-X$Translocation = names(SupplX.list)[i]
-SupplX = X %>% select(Translocation, everything())
+SupplX = lapply(c("C2S", "N2S"), function(i) {
+  X = SupplX.list[[i]]$fgseaRes %>% as.data.frame()
+  X$Translocation = i
+  X %>% select(Translocation, everything())  
+}) %>% Reduce(rbind, .)
+
 
 ## GSEA result on Translocation indices using KEGG
 SupplY.list = readRDS("../results/rerun/Translocation/GSEA/KEGG/GSEA_output.RDS")
@@ -462,11 +490,104 @@ TableNames = list("SE"=design.table2, "SG"=SupplG, "SA"=SuppA, "SB"=SupplB, "SH"
 # TableNames = list("SE"=design.table2, "SG"=SupplG, "SA"=SuppA, "SB"=SupplB, "SH"=SupplH, "SI"=SupplI, "SJ"=SupplJ, "SK"=SupplK, "SD"=SupplD, "SF"=SupplF, "SL"=SupplL, "SM"=SupplM)
 
 openxlsx::write.xlsx(TableNames, 
-             file = paste0("/Users/ekol-yal/Documents/Project/2024/SMS_7314_insula/doc/Figures_tables/SupplementaryTable.xlsx")) 
+             file = paste0("../doc/Figures_tables/SupplementaryTable.xlsx")) 
 
 ```
 
 ```{r}
+
+out = capture.output(cat("
+  SheetSE: Meta data table for the study subjects. RIN: RNA integrity number, PMI: postmortem interval time. \n\n
+
+  SheetSG: Over-representation analysis results for compartment-specific proteins using the Cellular Component subset of the Gene Ontology (GO) database.\n
+  	- ID. The GO term identifier — a unique accession number for a GO term in the Gene Ontology database.\n
+  	- Description. The biological meaning of the GO term (from the GO database).
+  	- GeneRatio. The proportion of your input genes (the foreground, e.g., compartment-specific proteins) that are annotated to this GO term.\n
+  	- BgRatio. The proportion of genes in the background (e.g., all quantified or all annotated genes) that belong to the same GO term.\n
+  	- pvalue. Raw p-value from the statistical test assessing whether the term is over-represented in your input list compared to background.\n
+  	- p.adjust. Adjusted p-value after multiple testing correction (Benjamini–Hochberg). Controls for false discovery rate (FDR).\n
+  	- qvalue. Another measure of FDR; in many implementations it’s equivalent to adjusted p-value but computed with slightly different methods (e.g., Storey’s q-value).\n
+  	- geneID. The list of genes from your input that are associated with this specific GO term (usually separated by /).\n\n
+
+  SheetSA: Limma differential gene table. The normalized protein abundance levels for each sample were also included.\n
+  	- logFC. The log₂ fold change between the two experimental conditions.\n
+  	- AveExpr. The average log₂ expression (or intensity) across all samples. This reflects the overall abundance of the protein.\n
+  	- t. The moderated t-statistic from limma’s empirical Bayes model — tests whether the logFC is significantly different from zero.\n
+  	- P.Value. The raw p-value.\n
+  	- adj.P.Val. The adjusted p-value after multiple testing correction (Benjamini–Hochberg FDR). This controls for false discoveries across all proteins tested.\n
+  	- B. The log-odds (B-statistic) that the protein is truly differentially expressed.\n
+		Higher B = higher posterior probability of being DE.\n
+		Values around 0 correspond to 50% chance, >2 = strong evidence.\n\n
+
+  SheetSB: ORA analysis result table showing the KEGG pathways enriched among the Limma-identified differential proteins for  the three cellular fractions. \n
+  	- ID. The unique identifier of the gene set \n
+  	- Description. The biological meaning or name of the gene set
+  	- GeneRatio. The proportion of your input (foreground) gene list that belongs to this gene set.\n
+  	- BgRatio. The proportion of the background gene set that belongs to this term.\n
+  	- pvalue. Raw p value\n
+  	- p.adjust. The multiple-testing corrected p-value (usually Benjamini–Hochberg FDR). Controls the false discovery rate across all tested terms.\n
+  	- qvalue. Alternative FDR measure (e.g., Storey’s q-value). Often similar to p.adjust.\n
+  	- Count. The number of input genes associated with this term.\n
+  	- geneID. The list of gene identifiers (e.g., Ensembl or UniProt IDs) from your input that are associated with this term.\n
+  	- geneID_Symbol. The same as geneID, but with gene symbols (e.g., VAMP1, RPS6KB1) instead of IDs. This is often added manually for readability.\n\n
+
+  SheetSH: Pls-DA selected proteins and their loadings on each of the two constructed components for each of the three cellular fractions. The regulational directions of the selected proteins are also shown.\n\n
+
+  SheetSI: ORA analysis result table showing the KEGG pathways enriched among the pls-DA selected proteins for the three cellular fractions. \n\n
+
+  SheetSJ: DIABLO selected proteins and their loadings on each of the two constructed components for each of the three cellular fractions. \n\n
+
+  SheetSK: ORA analysis result table showing the KEGG pathways enriched among the DIABLO selected proteins for the first component from all three cellular fractions together.\n\n
+
+  SheetSO: Spearman correlations between L1000 compound perturbation signatures (differential profile comparing to control) and Alcoholism profiles (comparing to control). \n
+  	- Pooled.cor: pooled correlation coefficient calculated using Random-effects meta-analysis using Fisher’s Z-transformed correlations (metafor)\n
+  	- ci.lb, ci.ub: 95% CI for the pooled correlation coefficient.\n
+  	- p.value, combined p value from the meta analysis\n
+  	- p.adjust: BH adjusted p.value\n
+  	- During correlation calculation, only keep compounds that appear in more than one compound+dose+time combination to increase confidence.\n
+  	- For each compound, only keep genes that have signature scores >2 or <-2\n\n
+
+ SheetSL: Differential alternative splicing analysis result table for all three subcellular fractions. Only the most significant pair of equivalence classes are shown for each gene.\n
+ 	- #distinct peps1 / #distinct peps2. Number of distinct peptides detected for each peptide sets, see below.\n
+ 	- #ions1 / #ions2. Total number of ion measurements (peptide spectra) used for quantification in each peptide set.\n
+ 	- FDR. False Discovery Rate — adjusted p-value controlling for multiple testing (lower = more significant).\n
+ 	- mean_fcfc. MS-EmpiReS groups isoforms into equivalence classes that each is defined as the set of all isoforms a peptide maps to. Often, multiple equivalence classes can be tested against each other in a pairwise fashion for a gene in a particular dataset. The fold-changes were calculated between conditions are determined for every peptide, then the FC of FCs for each possible peptide pair between two compared equivalence classes were calculated, which will be named as FCFC, the FCFCs of all possible peptide pairs were then averaged to get mean_fcfc. \n
+ 	- log2fc_t1, log2fc_t2. Log₂ fold changes between conditions for each equivalence class.\n
+ 	- ratio_excl1/excl2. Ratio of expression of peptides mapped exclusively to equivalence class1 vs class2.\n
+ 	- diff_log2fcfc. log2(mean_fcfc).\n
+ 	- splicpeps. Indicates if alternative splice variant–specific peptides were detected at a cutoff of fdr < 0.05 (TRUE or FALSE).\n
+ 	- IDsplice. Whether splice variants were identified (TRUE/FALSE or ID list).
+ 	- p-value. Raw (unadjusted) p-value for the differential test. FDR (above) is the multiple-testing-corrected version.\n
+ 	- set1 / set2 / set3. peptide set names. excl1: peptides mapped exclusively to eqclass1, union: peptides mapped to both eqclasses, excl2: peptides mapped to eqclass2.\n
+ 	- t1 / t2 / t3. Isoforms for each peptide set.\n
+ 	- peps1 / peps2 / peps3. Peptides for each peptide set.\n\n
+
+  SheetSM: Differential alternative splicing analysis result table for all three subcellular fractions. Only the most significant pair of equivalence classes are shown for each gene.\n\n
+
+  SheetST: Gene set enrichment analysis results showing the enriched celltypes among the top differentially expressed proteinds.\n
+  	- Here we use the C8 cell type signature gene sets from MsigDB.\n
+  	- pval. Nominal p-value from the GSEA test.\n
+  	- padj. BH Adjusted p-value\n
+  	- log2err. The estimated standard error (in log2 scale) for the normalized enrichment score (NES).\n
+  	- ES. Enrichment Score — a running-sum statistic measuring overrepresentation of the gene set at the top or bottom of the ranked list.\n
+  	- NES. Normalized Enrichment Score — ES normalized by gene set size and permutation background.\n
+  	- size. Number of genes from the tested gene set that were present in your ranked list.\n
+  	- leadingEdge. The subset of genes that contributed most to the enrichment signal — i.e., those driving the ES peak.\n\n
+
+
+  SheetSV: Result of limma differential analysis of translocaiton indices between AUD and UC. The translocaiton indices (log2 transformed) for each sample are also shown. \n\n
+
+  SheetSSS: GSEA result with SynGO on synaptosomal differential result. \n\n
+
+  SheetSX: GSEA result with SynGO on translocation index differential result.\n\n
+
+  SheetSY: GSEA result with KEGG on translocaiton index differential result. \n\n
+  
+"))
+
+writeLines(out, "../doc/Figures_tables/README_SupplementaryTable.txt")
+
+out
 
 ```
 

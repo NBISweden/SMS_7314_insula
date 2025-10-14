@@ -171,7 +171,7 @@ combined = lapply(seq_along(CC.list), function(i) {
 combined$Description = factor(combined$Description, 
       levels = rev(unique(combined$Description)))
 pdf(paste0(OUTDIR, "/GO_C_allProteins.pdf"), h=12.5, w=11.5)
-ggplot(combined, aes(x=Count,y=Description,size=qvalue)) +
+ggplot(combined, aes(x=Count,y=Description,size=p.adjust)) +
   geom_point(shape=21, aes(size=p.adjust, fill=Fraction)) +
   facet_wrap(~Fraction, ncol=3) +
   scale_size(trans="reverse") +
@@ -201,7 +201,7 @@ rslt.list = lapply(compartments, function(i) {
 S = setdiff(protein.list[[2]], unique.protein.list[[2]])
 
 genes = rslt.list[[2]][rslt.list[[2]]$Protein_IDs %in%S, "Genes", drop=T]
-ego <- enrichGO(gene        = genes,
+ego = enrichGO(gene        = genes,
                 OrgDb         = org.Hs.eg.db,
                 ont           = "CC",
                 pAdjustMethod = "BH",
@@ -217,8 +217,8 @@ ego@result = arrange(ego@result, -Count)
 ego@result$Description = factor(ego@result$Description, 
       levels = rev(unique(ego@result$Description)))
 pdf(paste0(OUTDIR, "/GO_C_sharedProteins_Nuclear.pdf"), h=12, w=7)
-ggplot(ego@result[1:60,], aes(x=Count,y=Description,size=qvalue)) +
-  geom_point(shape=21, aes(size=qvalue), fill="#B32B16") +
+ggplot(ego@result[1:60,], aes(x=Count,y=Description,size=p.adjust)) +
+  geom_point(shape=21, aes(size=p.adjust), fill="#B32B16") +
   #facet_wrap(~Fraction, ncol=3) +
   scale_size(trans="reverse") +
   scale_fill_continuous(type = "viridis") +
@@ -249,7 +249,7 @@ rslt.list = lapply(compartments, function(i) {
 CC.list = lapply(seq_along(unique.protein.list), function(i) {
   d = unique.protein.list[[i]]
   genes = rslt.list[[i]][rslt.list[[i]]$Protein_IDs %in%d, "Genes", drop=T]
-  ego <- enrichGO(gene        = genes,
+  ego = enrichGO(gene        = genes,
                 OrgDb         = org.Hs.eg.db,
                 ont           = "CC",
                 pAdjustMethod = "BH",
@@ -261,6 +261,9 @@ CC.list = lapply(seq_along(unique.protein.list), function(i) {
 })
 
 library(xlsx)
+if (file.exists(paste0(OUTDIR, "GO_CC.xlsx"))) {
+  file.remove(paste0(OUTDIR, "GO_CC.xlsx"))
+}
 lapply(seq_along(CC.list), function(i) {
   c = CC.list[[i]]
   options(java.parameters = "-Xmx3000m")
@@ -273,7 +276,7 @@ lapply(seq_along(CC.list), function(i) {
 
 combined = lapply(seq_along(CC.list), function(i) {
   c = CC.list[[i]]
-  d = c@result[c@result$qvalue<0.05,] %>% mutate(Fraction=names[i])
+  d = c@result[c@result$p.adjust<0.05,] %>% mutate(Fraction=names[i])
   keep = min(20, nrow(d))
   d[1:keep, ]
 }) %>% Reduce(rbind, .)
@@ -281,8 +284,8 @@ combined = lapply(seq_along(CC.list), function(i) {
 combined$Description = factor(combined$Description, 
       levels = rev(unique(combined$Description)))
 pdf(paste0(OUTDIR, "/GO_C_uniqueProteins.pdf"), h=10.5, w=11.5)
-ggplot(combined, aes(x=Count,y=Description,size=qvalue)) +
-  geom_point(shape=21, aes(size=qvalue, fill=Fraction)) +
+ggplot(combined, aes(x=Count,y=Description,size=p.adjust)) +
+  geom_point(shape=21, aes(size=p.adjust, fill=Fraction)) +
   facet_wrap(~Fraction, ncol=3) +
   scale_size(trans="reverse") +
   scale_fill_manual(values=c("darkred", "#6D6D6D", "darkgreen")) +
@@ -298,10 +301,10 @@ dev.off()
 # Session Info
 
 ```{r}
+out = capture.output(print(sessionInfo()))
+writeLines(out, paste0(OUTDIR, "sessionInfo.txt"))
 
-sink(paste0(OUTDIR, "sessionInfo.txt"))
 print(sessionInfo())
-sink()
 ```
 
 # Deliverables

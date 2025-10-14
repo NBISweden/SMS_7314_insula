@@ -1653,7 +1653,7 @@ for (i in entrez_list_sig2) {
   DOWN = c(DOWN, i$down) %>% .[unique(names(.))]
 }
 
-entrez_list_sig_all = list(ALL=list(up=UP, down=DOWN))
+entrez_list_sig_all = list(`ALL FRAC.`=list(up=UP, down=DOWN))
 kk.sig_all = runkk(entrez_list_sig_all)
 
 source("../src/makeDotplot.R")
@@ -1728,7 +1728,7 @@ P = ggplot(fgseaRes4Plotting, aes(y=pathway, x=NES)) +
   labs(caption="p.adjust <= 0.05 & 5<=setSize<=500")
 
 dir.create(paste0(OUTDIR_DA, "/SynGO/"), recursive=T, showWarnings = F)
-pdf("../results/rerun/PathwayAnalysis/SynGO/Dotplot_enriched_SynGO.pdf", h=3, w=6)
+pdf("../results/rerun/PathwayAnalysis/SynGO/Dotplot_enriched_SynGO.pdf", h=3.1, w=5.5)
 P
 dev.off()
 P

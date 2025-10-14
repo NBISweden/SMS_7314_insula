@@ -267,6 +267,15 @@ saveRDS(final.diablo.model, paste0(OUTDIR, "final.diablo.model.RDS"))
 
 ```{r}
 #We can plot the samples in the PLS space
+new_names = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
+# Apply to all relevant slots
+names(final.diablo.model$X) = new_names
+names(final.diablo.model$ncomp) = c(new_names, "Y")
+rownames(final.diablo.model$design) = c(new_names, "Y")
+colnames(final.diablo.model$design) = c(new_names, "Y")
+names(final.diablo.model$variates) = c(new_names, "Y")
+names(final.diablo.model$loadings) = c(new_names, "Y")
+names(final.diablo.model$names$colnames) = c(new_names, "Y")  # optional, for labeling
 p = invisible(plotIndiv(final.diablo.model, ind.names=F, legend=T))
 #We can see that in the PLS space (formed by the two identified latent variables/components), control and case are well separated mainly by variate 1, suggesting that our selected variables hold significant discriminatory power. This is in contrast to the PCA spaces based on DEGs as we observed at `results/rerun/QC/*_PCA_plot_onDEGs.pdf`, where the two conditions are still hidden by unwanted variation and hard to separate for SYNAPTOSOMAL. We have controlled for some major unwanted variation during Differential analysis, which was not shown on the PCA plot, and there may be more to control for. I guess DIABLO managed to get rid of those unwanted variation while looking for variates (components) that can best separate the two conditions.
 
@@ -435,12 +444,13 @@ write.graph(my.network$gR, file = paste0(OUTDIR, "myNetwork.gml"), format = "gml
 ```
 
 ```{r, fig.height=10, fig.width=10}
-compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
-comps = c(1,2)
-
 # OUTDIR = "../results/rerun/Integration/DIABLO/" 
 # final.diablo.model = readRDS(paste0(OUTDIR, "final.diablo.model.RDS"))
 # pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureLoadingPlot.pdf"), h=6, w=6)
+names(final.diablo.model$X) = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
+names(final.diablo.model$loadings) = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
+compartments = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
+comps = c(1,2)
 lapply(comps, function(comp) {
   for (cell in compartments) {
     loadings = 
@@ -472,16 +482,16 @@ lapply(comps, function(comp) {
     pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureLoadingPlot_comp1.pdf"), h=6, w=6)
     print(cowplot::ggdraw() +
       draw_plot(comp1_CYTOSOLIC, x = 0, y = 0, width = 0.5, height = 1) +
-      draw_plot(comp1_PELLET, x = 0.5, y = 0.6, width = 0.5, height = 0.4) + 
+      draw_plot(comp1_NUCLEAR, x = 0.5, y = 0.6, width = 0.5, height = 0.4) + 
       draw_plot(comp1_SYNAPTOSOMAL, x = 0.5, y = 0, width = 0.5, height = 0.2) + 
       draw_plot_label(label = c(compartments), size = 12, x = c(0.28,0.72,0.6), 
                       y = c(1, 1,0.3)))
     invisible(dev.off())
   } else {
-    pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureLoadingPlot_comp2.pdf"), h=5, w=6)
+    pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureLoadingPlot_comp2.pdf"), h=5.2, w=6.2)
     print(cowplot::ggdraw() +
       draw_plot(comp2_CYTOSOLIC, x = 0, y = 0, width = 0.5, height = 1) +
-      draw_plot(comp2_PELLET, x = 0.5, y = 0.5, width = 0.5, height = 0.5) + 
+      draw_plot(comp2_NUCLEAR, x = 0.5, y = 0.5, width = 0.5, height = 0.5) + 
       draw_plot(comp2_SYNAPTOSOMAL, x = 0.5, y = 0, width = 0.5, height = 0.25) + 
       draw_plot_label(label = compartments, size = 12, 
                       x = c(0.28,0.8,0.6), y = c(1,1,0.3)))
@@ -528,6 +538,8 @@ drawHeatmap = function(comps) {
           title=paste0("Component", i))
   }))
 }
+
+names(final.diablo.model$X) = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
 pdf(paste0(OUTDIR, "/selectedProteins/SelectedFeatureHeatmapPlot.pdf"), h=7, w=17)
   drawHeatmap(comps)
 invisible(dev.off())
@@ -539,8 +551,11 @@ Heatmap showing the protein abundance of the selected proteins/Features from eac
 
 ```{r, fig.height=3, fig.width=12}
 compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+compartments_new = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
 comps = c(1,2)
-for (c in compartments) {
+for (i in 1:length(compartments)) {
+  c = compartments[i]
+  N = compartments_new[i]
   print(c)
   Group = data.frame(Group=final.diablo.model$Y)
   rownames(Group) = rownames(final.diablo.model$variates[[c]])
@@ -550,20 +565,21 @@ for (c in compartments) {
     gather(key="Component", value="Score", -c(Group, Row.names)) %>%
     ggplot(., aes(x=Component, y=Score)) +
     geom_violin(trim=FALSE, aes(fill=Group)) +
-    ggtitle(c) +
+    ggtitle(N) +
     theme_bw() +theme(
       panel.background=element_rect(fill="white"),
       panel.grid.minor=element_blank(),
       panel.grid.major.x=element_blank(),
       panel.grid.major.y=element_line(size=0.3, color="white")) 
   
-  assign(c, p)
+  assign(N, p)
 }
 
-plot_grid(CYTOSOLIC, PELLET, SYNAPTOSOMAL, ncol=3)
+plot_grid(CYTOSOLIC, NUCLEAR, SYNAPTOSOMAL, ncol=3)
   
-pdf(paste0(OUTDIR, "/selectedProteins/ViolinPlot_CompVScondition.pdf"), h=3, w=12)
-plot_grid(CYTOSOLIC, PELLET, SYNAPTOSOMAL, ncol=3)
+pdf(paste0(OUTDIR, "/selectedProteins/ViolinPlot_CompVScondition.pdf"), 
+    h=3, w=12)
+  plot_grid(CYTOSOLIC, NUCLEAR, SYNAPTOSOMAL, ncol=3)
 invisible(dev.off())
 
 ```
@@ -646,7 +662,7 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh) {
     up = as.data.frame(rslt.list[[i]]) %>% 
       filter(logFC>log2FoldChange_thresh&adj.P.Val<padj_thresh)
     down = as.data.frame(rslt.list[[i]]) %>% 
-      filter(logFC<log2FoldChange_thresh&adj.P.Val<padj_thresh)
+      filter(logFC< -log2FoldChange_thresh&adj.P.Val<padj_thresh)
     list(up$Protein_IDs, down$Protein_IDs)
   })  %>% setNames(names(rslt.list))
   
@@ -658,7 +674,7 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh) {
       .[.>0] %>% names()
     list(up, down)
   })
-  compartments_new = c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL")
+  compartments_new = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
   protein.list_UP = c(protein.list[[1]][1], protein.list[[2]][1], 
                       protein.list[[3]][1], Diablo.features[[1]][1],
                       Diablo.features[[2]][1],
@@ -706,7 +722,7 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh) {
   return(list(protein.list_UP=protein.list_UP, protein.list_DOWN=protein.list_DOWN))
 }
 
-log2FoldChange_thresh = 0
+log2FoldChange_thresh = 0.3
 padj_thresh = 0.2
 protein.list = makeUpset(log2FoldChange_thresh, padj_thresh)
 
@@ -751,6 +767,18 @@ if (file.exists(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_comp1.xlsx"))) {
 library(clusterProfiler)
 # print("KEGG GSEA analysis")
 # library(xlsx)
+
+rslt.list = 
+  readRDS("../results/rerun/QC/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS")
+universe = lapply(rslt.list, function(n){
+    n$Genes %>% as.character()
+    }) %>% unlist() %>% unique() %>% bitr(
+    .,
+    fromType = "SYMBOL",
+    toType = "ENTREZID",
+    OrgDb = org.Hs.eg.db) %>%
+    pull(ENTREZID) %>% as.character() %>% unique() %>% na.omit()
+
 kk.sig = lapply(names(entrez_list_sig), function(i) {
   gl = entrez_list_sig[[i]] %>% as.character()
   kk = NULL
@@ -760,7 +788,7 @@ kk.sig = lapply(names(entrez_list_sig), function(i) {
                    organism = 'hsa',
                    pvalueCutoff = 1,
                    qvalueCutoff = 1,
-                   #universe = universe,
+                   universe = universe,
                    use_internal_data = F)
     print("Convert Entrez ID back to gene symbol")
     source("../src/convertEntrez2Symbol.R")
@@ -785,15 +813,15 @@ saveRDS(kk.sig, paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_comp1.RDS"))
 
 ```{r}
 source("../src/makeDotplot.R")
-p1 = makeDotplot_ORA_KEGG(list(all=kk.sig), index.list=1, 
-                       qval.thresh=0.1)
-pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_qvalueCutoff0.1_comp1.pdf"), h=9.5, w=10)
+p1 = makeDotplot_ORA_KEGG(list(`ALL FRAC.`=kk.sig), index.list=1, 
+                       p.adjust.thresh=0.1)
+pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_p.adjustCutoff0.1_comp1.pdf"), h=6, w=8)
 p1
 invisible(dev.off())
 
-p1 = makeDotplot_ORA_KEGG(list(all=kk.sig), index.list=1, 
-                       qval.thresh=0.05)
-pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_qvalueCutoff0.05_comp1.pdf"), h=7, w=10)
+p1 = makeDotplot_ORA_KEGG(list(`ALL FRAC.`=kk.sig), index.list=1, 
+                       p.adjust.thresh=0.05)
+pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_p.adjustCutoff0.05_comp1.pdf"), h=4, w=8)
 p1
 invisible(dev.off())
 ```
@@ -820,7 +848,7 @@ listEnrichrSites()
 #head(dbs)
 
 # Select drug related databases:
-dbs <- c("LINCS_L1000_Chem_Pert_Consensus_Sigs", 
+dbs = c("LINCS_L1000_Chem_Pert_Consensus_Sigs", 
          "Proteomics_Drug_Atlas_2023", "DSigDB",
          "MAGMA_Drugs_and_Diseases", "IDG_Drug_Targets_2022")
 # EnrichR analysis for all up/down regulated genes in alcoholism
@@ -853,9 +881,10 @@ invisible(dev.off())
 # Session Info
 
 ```{r}
-sink(paste0(OUTDIR, "sessionInfo.txt"))
+out = capture.output(print(sessionInfo()))
+writeLines(out, paste0(OUTDIR, "sessionInfo.txt"))
+
 print(sessionInfo())
-sink()
 ```
 
 # Deliverables

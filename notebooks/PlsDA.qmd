@@ -578,7 +578,7 @@ universe = lapply(normData, function(n){
   OrgDb = org.Hs.eg.db) %>%
   pull(ENTREZID) %>% as.character() %>% unique() %>% na.omit()
 
-NAME = "ALL"
+NAME = "ALL FRAC."
 kk.sig = get.kk.sig(entrez_list_sig, NAME=NAME, universe=universe)
 saveRDS(kk.sig, paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_", NAME, ".RDS"))
 # kk.sig = readRDS(paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_result_", NAME, ".RDS"))
@@ -609,7 +609,7 @@ qval.thresh = c(0.1, 0.05)
 lapply(qval.thresh, function(q) {
     pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_p.adjustCutoff_", q, "_all.pdf"), h=2.9, w=6.5)
       print(makeDotplot_ORA_KEGG(
-        list(ALL=kk.sig), 
+        list(`ALL FRAC.`=kk.sig), 
         index.list=1, 
         p.adjust.thresh=q))
     invisible(dev.off()) 

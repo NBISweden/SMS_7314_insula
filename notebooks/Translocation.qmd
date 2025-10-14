@@ -111,9 +111,11 @@ getTranslocationIndex = function(dataTable.list_SL_IRS_TMM, From="CYTOSOLIC", To
 }
 
 names(dataTable.list_SL_IRS_TMM)
-Pairs = list(c("CYTOSOLIC", "SYNAPTOSOMAL"), c("CYTOSOLIC", "PELLET"), 
-                                 c("SYNAPTOSOMAL", "PELLET"))
-PairNames = c("C2S", "C2N", "S2N")
+Pairs = list(c("CYTOSOLIC", "SYNAPTOSOMAL"), 
+             c("CYTOSOLIC", "PELLET"), 
+             c("PELLET","SYNAPTOSOMAL"))
+# PairNames = c("C2S", "C2N", "S2N") ##################################
+PairNames = c("C2S", "C2N", "N2S")
 
 TranslocationIndex.list = lapply(Pairs, function(pair) {
   getTranslocationIndex(dataTable.list_SL_IRS_TMM, From=pair[1], To=pair[2])
@@ -348,6 +350,7 @@ rslt.list = lapply(seq_along(TranslocationIndex.list), function(k) {
                           PMI=as.numeric(design_matrix$PMI),
                           Age=as.numeric(design_matrix$Age))
     tmp_data$Condition = factor(tmp_data$Condition,levels=c("control", "case"))
+    # if (i %in% c("C2S", "C2N")) {
     if (i %in% c("C2S", "C2N")) {
       #print("Remove set for set specific proteins: ")
       if(any(tapply(is.na(abundance), tmp_data$Batch, all))){
@@ -407,9 +410,12 @@ saveRDS(rslt.list, paste0(OUTPUT, "/Limma/Limma_results.RDS"))
 rslt.list = lapply(rslt.list, function(rslt) {
   rslt %>% arrange(P.Value)
 })
+# TableNames = list(C2S = rslt.list$C2S,
+#                    C2N = rslt.list$C2N,
+#                    S2N = rslt.list$S2N)
 TableNames = list(C2S = rslt.list$C2S,
                    C2N = rslt.list$C2N,
-                   S2N = rslt.list$S2N)
+                   N2S = rslt.list$N2S)
 invisible(capture.output(openxlsx::write.xlsx(TableNames, 
              file=paste0(OUTPUT, "/Limma/Limma_results.xlsx"))))
 
@@ -438,7 +444,8 @@ source("../src/makeUpset.R")
 # library(ComplexHeatmap)
 log2FoldChange_thresh = 0
 padj_thresh = 0.2
-temp = rslt.list %>% setNames(c("C2S", "C2N", "S2N"))
+# temp = rslt.list %>% setNames(c("C2S", "C2N", "S2N"))
+temp = rslt.list %>% setNames(c("C2S", "C2N", "N2S"))
 feature.list = makeUpset(rslt.list=temp, log2FoldChange_thresh, padj_thresh, 
                          OUTDIR=paste0(OUTPUT, "/Limma/"), h=3.5, w=4)
 rm(temp)
@@ -451,7 +458,7 @@ rm(temp)
 # synGO
 library(xlsx)
 synGO = read.xlsx2("../data/SynGO_bulk_download_release_20231201/syngo_ontologies.xlsx",
-                   sheetName = "Sheet 1", header=T) #%>% filter(domain=="BP")
+  sheetName = "Sheet 1", header=T) #%>% filter(domain=="BP")
 syn_ref = split(synGO$hgnc_symbol, synGO$name) %>% 
   lapply(., function(s) {
     strsplit(s, ", ")[[1]] %>% unique()
@@ -485,7 +492,7 @@ runfgsea = function(rslt.limma, Pathway.db, Pair = "SYNAPTOSOMAL2CYTOSOLIC", met
     guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
     theme(strip.text.x = element_text(size = 14)) +
     labs(caption=paste0("p.adjust <= ", padj.cutoff, " & 5<=setSize<=500"))
-  pdf(paste0(OUTDIR, "/Dotplot_enriched_", Pair, "_padj", padj.cutoff, ".pdf"), h=L*h_fold+2, w=w)
+  pdf(paste0(OUTDIR, "/Dotplot_enriched_", Pair, "_padj", padj.cutoff, ".pdf"), h=L*h_fold+2.35, w=w)
     print(P)
   dev.off()
   return(list(fgseaRes=fgseaRes, fgseaRes4Plotting=fgseaRes4Plotting)) 
@@ -505,23 +512,29 @@ fgseaRes.list = lapply(seq_along(names(rslt.list)), function(i) {
 
 # save Limma analysis result
 saveRDS(fgseaRes.list, paste0(OUTPUT, "/GSEA/SynGO/GSEA_output_wSynGO.RDS"))
+# TableNames = list(C2S = fgseaRes.list$C2S$fgseaRes,
+#                    C2N = fgseaRes.list$C2N$fgseaRes,
+#                    S2N = fgseaRes.list$S2N$fgseaRes)
 TableNames = list(C2S = fgseaRes.list$C2S$fgseaRes,
                    C2N = fgseaRes.list$C2N$fgseaRes,
-                   S2N = fgseaRes.list$S2N$fgseaRes)
+                   N2S = fgseaRes.list$N2S$fgseaRes)
 invisible(capture.output(openxlsx::write.xlsx(TableNames, 
              file=paste0(OUTPUT, "/GSEA/SynGO/GSEA_output_wSynGO.xlsx"))))
 
 temp = lapply(seq_along(fgseaRes.list), function(i) {
   r = fgseaRes.list[[i]]
-  r$fgseaRes4Plotting %>% mutate(Group=c("C2S", "C2N", "S2N")[i]) %>%
+  # r$fgseaRes4Plotting %>% mutate(Group=c("C2S", "C2N", "S2N")[i]) %>%
+  r$fgseaRes4Plotting %>% mutate(Group=c("C2S", "C2N", "N2S")[i]) %>%
     select(Group, everything())
 }) %>% Reduce(rbind, .)
 
 padj.cutoff=0.05
-h_fold=0.12
-w=12
+h_fold=0.105
+w=10
 L = nrow(temp)
-temp$Group = factor(temp$Group, levels=c("C2S", "C2N", "S2N"))
+# temp$Group = factor(temp$Group, levels=c("C2S", "C2N", "S2N"))
+temp = filter(temp, Group!="C2N")
+temp$Group = factor(temp$Group, levels=c("C2S", "N2S"))
 temp$pathway = factor(temp$pathway, levels=unique(rev(temp$pathway)))
 P = ggplot(temp, aes(y=pathway, x=NES)) +
     geom_point(shape=21, aes(size=padj, fill=Group)) +
@@ -595,15 +608,18 @@ KEGG.fgseaRes.list = lapply(seq_along(names(rslt.list)), function(i) {
 # Combine KEGG results from C2N and S2N together and make one single dotplot:
 temp = lapply(seq_along(KEGG.fgseaRes.list), function(i) {
   r = KEGG.fgseaRes.list[[i]]$fgseaRes4Plotting %>% arrange(-NES)
-  r = r %>% mutate(Group=c("C2S", "C2N", "S2N")[i]) %>%
+  # r = r %>% mutate(Group=c("C2S", "C2N", "S2N")[i]) %>%
+  r = r %>% mutate(Group=c("C2S", "C2N", "N2S")[i]) %>%
     select(Group, everything())
-  filter(r, Group %in% c("C2N", "S2N"))
+  # filter(r, Group %in% c("C2N", "S2N"))
+  filter(r, Group %in% c("C2N", "N2S"))
 }) %>% Reduce(rbind, .)
 padj.cutoff=0.05
-h_fold=0.12
-w=11
+h_fold=0.13
+w=10
 L = nrow(temp)
-temp$Group = factor(temp$Group, levels=c("C2N", "S2N"))
+# temp$Group = factor(temp$Group, levels=c("C2N", "S2N"))
+temp$Group = factor(temp$Group, levels=c("C2N", "N2S"))
 temp$pathway = factor(temp$pathway, levels=unique(rev(temp$pathway)))
 P = ggplot(temp, aes(y=pathway, x=NES)) +
     geom_point(shape=21, aes(size=padj, fill=Group)) +
@@ -639,15 +655,18 @@ KEGG.fgseaRes.list = lapply(seq_along(names(rslt.list)), function(i) {
 # Combine KEGG results from C2N and S2N together and make one single dotplot:
 temp = lapply(seq_along(KEGG.fgseaRes.list), function(i) {
   r = KEGG.fgseaRes.list[[i]]$fgseaRes4Plotting %>% arrange(-NES)
-  r = r %>% mutate(Group=c("C2S", "C2N", "S2N")[i]) %>%
+  # r = r %>% mutate(Group=c("C2S", "C2N", "S2N")[i]) %>%
+  r = r %>% mutate(Group=c("C2S", "C2N", "N2S")[i]) %>%
     select(Group, everything())
-  filter(r, Group %in% c("C2N", "S2N"))
+  # filter(r, Group %in% c("C2N", "S2N"))
+  filter(r, Group %in% c("C2N", "N2S"))
 }) %>% Reduce(rbind, .)
 padj.cutoff=0.01
-h_fold=0.13
-w=11
+h_fold=0.14
+w=10
 L = nrow(temp)
-temp$Group = factor(temp$Group, levels=c("C2N", "S2N"))
+# temp$Group = factor(temp$Group, levels=c("C2N", "S2N"))
+temp$Group = factor(temp$Group, levels=c("C2N", "N2S"))
 temp$pathway = factor(temp$pathway, levels=unique(rev(temp$pathway)))
 P = ggplot(temp, aes(y=pathway, x=NES)) +
     geom_point(shape=21, aes(size=padj, fill=Group)) +
@@ -669,7 +688,7 @@ dev.off()
 saveRDS(KEGG.fgseaRes.list, paste0(OUTPUT, "/GSEA/KEGG/GSEA_output.RDS"))
 TableNames = list(
                    C2N = KEGG.fgseaRes.list$C2N$fgseaRes,
-                   S2N = KEGG.fgseaRes.list$S2N$fgseaRes)
+                   N2S = KEGG.fgseaRes.list$N2S$fgseaRes)
 invisible(capture.output(openxlsx::write.xlsx(TableNames, 
              file=paste0(OUTPUT, "/GSEA/KEGG/GSEA_output.xlsx"))))
 
