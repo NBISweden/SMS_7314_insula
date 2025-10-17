@@ -12,5 +12,5 @@
     - Celltype deconvolution (GSEA)
     - Drug repurposing analysis L1000
     - Differential alternative splicing (MS-EmpiReSv1.1)
-    - Network analysis (synGO)
+    - Network analysis (synGO, hub genes)
       
