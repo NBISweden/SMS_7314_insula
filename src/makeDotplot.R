@@ -1,7 +1,7 @@
 #' @param rslt pathway analysis result list
 #
 makeDotplot_ORA_KEGG = function(rslt, index.list=1:2, 
-                       p.adjust.thresh=0.1) {
+                       p.adjust.thresh=0.1,title="") {
   
   print("Combine the ORA result to a long table...")
   if (is_empty(index.list)) {
@@ -39,8 +39,7 @@ makeDotplot_ORA_KEGG = function(rslt, index.list=1:2,
                       Reduce(intersect, pathway.list),
                       setdiff(pathway.list[[1]], 
                               pathway.list[[2]]),
-                      table.long$Description) %>%
-    unique()
+                      table.long$Description) %>% unique()
   
   table.long$Description = factor(table.long$Description,
                               levels = rev(pathways.sorted))
@@ -48,14 +47,19 @@ makeDotplot_ORA_KEGG = function(rslt, index.list=1:2,
   p = ggplot(data=table.long, mapping=aes_string(x="Count_reg", y="Description")) +
     geom_point(shape=21, aes(size=p.adjust, fill=Regulation)) +
     facet_wrap(~Condition, ncol=3) + 
-    # ggtitle("ORA_KEGG") +
+    ggtitle(title) +
     xlab("Count") +
-    ylab("") + labs(size="p.adjust") +
+    ylab("") + 
+    # labs(size="p.adjust") +
+    labs(size="FDR") +
     scale_fill_manual(values=c("DOWN"="#6D6D6D", "UP"="#B32B16")) +
     theme_bw(base_size = 15) + 
     scale_size(trans="reverse") +
     guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
     theme(strip.text.x = element_text(size = 14)) +
-    labs(caption=paste0("p.adjust.cutoff = ", p.adjust.thresh, ", pAdjustMethod = fdr"))
+    labs(caption=paste0("FDR < ", p.adjust.thresh))
+    # labs(caption=paste0("p.adjust.cutoff = ", p.adjust.thresh))
+    # labs(caption=paste0("p.adjust.cutoff = ", p.adjust.thresh, ", pAdjustMethod = fdr"))
+
   return(p)
 }

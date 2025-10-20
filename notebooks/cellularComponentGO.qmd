@@ -119,7 +119,8 @@ protein.list = lapply(normData, function(n) {
   #colSums(X) %>% .[order(., decreasing=T)] %>% .[1:1000] %>% names()
 }) %>% setNames(c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL"))
 
-unique.protein.list = list(setdiff(protein.list[[1]], union(protein.list[[2]], protein.list[[3]])),
+unique.protein.list = list(
+     setdiff(protein.list[[1]], union(protein.list[[2]], protein.list[[3]])),
      setdiff(protein.list[[2]], union(protein.list[[1]], protein.list[[3]])),
      setdiff(protein.list[[3]], union(protein.list[[1]], protein.list[[2]]))) %>% 
   setNames(c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL"))
@@ -148,6 +149,7 @@ universe = rslt.list %>% lapply(.,function(x) {x[,c("Protein_IDs", "Genes")]}) %
 CC.list = lapply(seq_along(protein.list), function(i) {
   d = protein.list[[i]]
   genes = rslt.list[[i]][rslt.list[[i]]$Protein_IDs %in%d, "Genes", drop=T]
+  set.seed(123)
   ego = enrichGO(gene        = genes,
                 OrgDb         = org.Hs.eg.db,
                 ont           = "CC",
@@ -175,6 +177,7 @@ ggplot(combined, aes(x=Count,y=Description,size=p.adjust)) +
   geom_point(shape=21, aes(size=p.adjust, fill=Fraction)) +
   facet_wrap(~Fraction, ncol=3) +
   scale_size(trans="reverse") +
+  labs(size="FDR") +
   scale_fill_manual(values=c("darkred", "#6D6D6D", "darkgreen")) +
   ggtitle("All proteins") + 
   theme_bw(base_size = 15) +
@@ -201,6 +204,7 @@ rslt.list = lapply(compartments, function(i) {
 S = setdiff(protein.list[[2]], unique.protein.list[[2]])
 
 genes = rslt.list[[2]][rslt.list[[2]]$Protein_IDs %in%S, "Genes", drop=T]
+set.seed(123)
 ego = enrichGO(gene        = genes,
                 OrgDb         = org.Hs.eg.db,
                 ont           = "CC",
@@ -222,6 +226,7 @@ ggplot(ego@result[1:60,], aes(x=Count,y=Description,size=p.adjust)) +
   #facet_wrap(~Fraction, ncol=3) +
   scale_size(trans="reverse") +
   scale_fill_continuous(type = "viridis") +
+  labs(size="FDR") +
   ggtitle("Shared proteins_Nuclear") + 
   theme_bw(base_size = 15) +
   theme(
@@ -249,6 +254,7 @@ rslt.list = lapply(compartments, function(i) {
 CC.list = lapply(seq_along(unique.protein.list), function(i) {
   d = unique.protein.list[[i]]
   genes = rslt.list[[i]][rslt.list[[i]]$Protein_IDs %in%d, "Genes", drop=T]
+  set.seed(123)
   ego = enrichGO(gene        = genes,
                 OrgDb         = org.Hs.eg.db,
                 ont           = "CC",
@@ -259,6 +265,8 @@ CC.list = lapply(seq_along(unique.protein.list), function(i) {
                 universe = universe)
   ego 
 })
+
+saveRDS(CC.list, paste0(OUTDIR, "GO_CC_uniqueProteins.rds"))
 
 library(xlsx)
 if (file.exists(paste0(OUTDIR, "GO_CC.xlsx"))) {
@@ -274,9 +282,11 @@ lapply(seq_along(CC.list), function(i) {
              append=T)
 })
 
+p.adjust.thresh = 0.05
+
 combined = lapply(seq_along(CC.list), function(i) {
   c = CC.list[[i]]
-  d = c@result[c@result$p.adjust<0.05,] %>% mutate(Fraction=names[i])
+  d = c@result[c@result$p.adjust<p.adjust.thresh,] %>% mutate(Fraction=names[i])
   keep = min(20, nrow(d))
   d[1:keep, ]
 }) %>% Reduce(rbind, .)
@@ -287,13 +297,15 @@ pdf(paste0(OUTDIR, "/GO_C_uniqueProteins.pdf"), h=10.5, w=11.5)
 ggplot(combined, aes(x=Count,y=Description,size=p.adjust)) +
   geom_point(shape=21, aes(size=p.adjust, fill=Fraction)) +
   facet_wrap(~Fraction, ncol=3) +
+  labs(size="FDR") +
   scale_size(trans="reverse") +
   scale_fill_manual(values=c("darkred", "#6D6D6D", "darkgreen")) +
-  ggtitle("Only unique proteins") + 
+  ggtitle("") + 
   theme_bw(base_size = 15) +
   theme(
     axis.ticks=element_blank(),
-    strip.text.x = element_text(size = 12))
+    strip.text.x = element_text(size = 12)) +
+  labs(caption=paste0("FDR < ", p.adjust.thresh))
 dev.off()
 
 ```

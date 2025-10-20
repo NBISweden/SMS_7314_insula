@@ -71,10 +71,16 @@ Do you agree that these would be better analytic approaches for the synaptosomal
 p.s. I know that limma didn't identify any significances in the synaptosomal fraction, so for these analyses we would need to input only the PLS-DA differential proteins (and of course the results would then need to be treated as exploratory).
 
 ```{r}
-#devtools::install_github('lptolik/synaptome.db')
-invisible(capture.output(library(synaptome.db)))
-invisible(capture.output(library(dplyr)))
-invisible(capture.output(library(igraph)))
+# remove.packages("dbplyr")
+# unlink(file.path(.libPaths()[1], "dbplyr"), recursive = TRUE)
+# install.packages("dbplyr")
+# devtools::install_github('lptolik/synaptome.db')
+invisible(library(synaptome.db))
+invisible(library(dplyr))
+invisible(library(igraph))
+invisible(library(igraph))
+invisible(library(readxl))
+
 ```
 
 ```{r}
@@ -90,17 +96,29 @@ plsDA_out_syn =
   as.data.frame() %>% filter(Fraction=="SYNAPTOSOMAL")
 up = filter(plsDA_out_syn, Reg=="up") %>% pull(Genes)
 down = filter(plsDA_out_syn, Reg=="down") %>% pull(Genes)
-all = c(up, down)
 up
 down
-length(all)
 # 107
 ```
+# Import all genes detected in the datasets
+
+```{r}
+# library(readxl)
+# # 1. List all sheet names
+# sheets = excel_sheets("../results/rerun/QC/NormalizedIntensity.xlsx")
+# # 2. Read all sheets into a list
+# all_sheets = lapply(sheets, read_excel, 
+#                path = "../results/rerun/QC/NormalizedIntensity.xlsx")
+# # 3. Optionally, name the list elements after the sheets
+# names(all_sheets) = sheets
+# all = lapply(all_sheets, function(x) x$Genes) %>% unlist() %>% unique()
+```
+
 
 # Check pls-DA selected proteins against synaptic proteom db
 
 ```{r}
-t = All_HumanEntrez = findGenesByName(all) %>% 
+t = findGenesByName(c(up,down)) %>% 
   pull(HumanEntrez) %>% 
   getGeneInfoByEntrez(.)
 head(t)
@@ -114,39 +132,86 @@ t %>% group_by(BrainRegion, HumanName) %>%
 
 
 ```{r, fig.height=15, fig.width=15, error=TRUE}
+library(ggraph)
+library(igraph)
 # type of the PPI network should be either induced (for all the PPIs for specific genes, including external genes) or limited (for PPIs between the genes specified in the query). Type could be shortened to recognizable minimum like 'ind' or 'lim'.
 g = getIGraphFromPPI(
-    getPPIbyName(all, type='induced'))
+    getPPIbyName(c(up,down), type='induced'))
+    # getPPIbyName(all, type='limited'))
 tbl = getTableFromPPI(getPPIbyName(all, type='induced'))
 TableNames = list("Synaptosomal_up"=tbl)
 openxlsx::write.xlsx(TableNames, 
                      paste0(OUTPUT,"/PPInetwork.xlsx"))
 
-lapply(seq(10,50,10), function(minEdges) {
-  L = (70-minEdges)/25
-  label.hubs = c(tbl$HumanName.A, tbl$HumanName.B) %>% table() %>%
-    .[.>minEdges] %>% names() %>% intersect(all)
+# sig_in_graph = findGenesByName(c(up,down)) %>% pull(GeneID) %>% as.character() %>%
+#     intersect(V(g)$name, .)
+# neighbors_2hop = unique(unlist(neighborhood(g, order = 1, nodes = sig_in_graph)))
+# # g = induced_subgraph(g, vids = neighbors_2hop)
+# g = getIGraphFromPPI(
+#     getPPIbyIDs(neighbors_2hop, type='limited'))
+
+# Compute centrality metrics
+deg = degree(g)                 # number of connections (degree)
+bet = betweenness(g)            # how often a node lies on shortest paths
+clos = closeness(g)    
+# Combine into one table
+hubTable = data.frame(
+  gene = igraph::V(g)$HumanName,
+  degree = deg,
+  betweenness = bet,
+  closeness = clos
+)
+# Rank by degree
+hubTable = hubTable[order(-hubTable$degree), ]
+head(hubTable$gene, 10)  # top hub genes
+openxlsx::write.xlsx(hubTable, 
+  paste0(OUTPUT,"/CentralityMetrics_4hubgenes.xlsx"))
+
+
+V(g)$degree = deg
+
+lapply(c(10,20,50), function(minEdges) {
+  L = log2(minEdges)
+  label.hubs = head(hubTable$gene, minEdges) %>% intersect(all)
   # Map each vertex to its group's color
   vertex.colors = ifelse(
-    igraph::V(g)$name %in% synaptome.db:::getGeneIdByName(up), 
-    "red", 
-    ifelse(igraph::V(g)$name %in% synaptome.db:::getGeneIdByName(down), "blue", "black"))
+    igraph::V(g)$HumanName %in% up, 
+    "up", 
+    ifelse(igraph::V(g)$HumanName %in% down, "down", "NS")) %>%
+    setNames(igraph::V(g)$name)
   vertex.label = rep("", igraph::V(g)$HumanName%>%length())
-  vertex.label[igraph::V(g)$HumanName %in% label.hubs] = igraph::V(g)$HumanName[igraph::V(g)$HumanName %in% label.hubs]
-  pdf(paste0(OUTPUT, "/PPInetwork_onlyHubsFromThisStudy_minEdge", minEdges,"_synaptosomal.pdf"), h=10*L, w=10*L)
-  plot(g,vertex.label=vertex.label, vertex.frame.color="snow", vertex.shape="none",
-       vertex.size=0, #vertex.label.degree = pi/3,
-       vertex.color = "snow", edge.color = "snow3",
-       vertex.label.color = vertex.colors,
-       layout=layout_with_fr(g))
+  vertex.label[igraph::V(g)$HumanName %in% label.hubs] = 
+    igraph::V(g)$HumanName[igraph::V(g)$HumanName %in% label.hubs]
+  
+  V(g)$vertex.colors = vertex.colors[match(V(g)$name, names(vertex.colors))]
+  V(g)$vertex.label = vertex.label
+  
+  pdf(paste0(OUTPUT, "/PPInetwork_onlyTop",minEdges,"Hubs_synaptosomal.pdf"), 
+      h=5.5*L, w=5*L)
+  print(ggraph(g, layout = "stress") +
+    geom_edge_link0(edge_colour = "snow3", edge_width = 0.1) +
+    geom_node_point(aes(fill = vertex.colors, size = degree), 
+                  shape = 21, alpha = 0.6, color = "grey25", stroke = 0) +
+    geom_node_text(aes(label = vertex.label), size = 2, family = "serif") +
+    scale_size_continuous(range = c(1, 8)) +
+    scale_fill_manual(values = c(up="purple",down="skyblue",NS="grey")) +
+    coord_fixed() +
+    theme_graph() +
+    theme(legend.position = "none"))
   dev.off() 
   
   pdf(paste0(OUTPUT, "/PPInetwork_synaptosomal.pdf"), h=35, w=30)
-  plot(g,vertex.label=igraph::V(g)$HumanName,
-     vertex.size=0, vertex.shape="none",
-     vertex.label.color = vertex.colors,
-     edge.color = "snow2")
-  dev.off()
+print(ggraph(g, layout = "stress") +
+  geom_edge_link0(edge_colour = "snow3", edge_width = 0.1) +
+  geom_node_point(aes(fill = vertex.colors, size = degree), 
+                shape = 21, alpha = 0.6, color = "grey25", stroke = 0) +
+  geom_node_text(aes(label = HumanName), size = 1, family = "serif") +
+  scale_size_continuous(range = c(1, 8)) +
+  scale_fill_manual(values = c(up="purple",down="skyblue",NS="grey")) +
+  coord_fixed() +
+  theme_graph() +
+  theme(legend.position = "none"))
+dev.off()
 })
 
 
@@ -163,13 +228,22 @@ writeLines(output, paste0(OUTPUT, "/sessionInfo.txt"))
 ```
 
 # Method summary
-To investigate the brain cell types that are potentially responsible for AUD, we performed Gene Set Enrichment Analysis (GSEA) using the fgsea R package (v.1.24.0) with default setting. Pre-ranked gene lists were generated based on log2 fold-change from Limma differential expression analysis between AUD and UC.
 
-Enrichment analysis was conducted against brain cell type markers obtained from the DISCO (https://www.immunesinglecell.org/atlas/brain). 
+```{r}
+out = capture.output(cat("
+  Here, we find hub genes among the PLS-DA selected synaptosomal genes based on protein-protein interaction (PPI) network analysis.\n
+  Here, we use PPIs from synaptome.db_0.99.12,\n
+  We withdraw PPIs (protein protein interactions) involving the PLS-DA selected synaptosomal genes (together with their partners/direct neigbors from synaptome.db) \n
+  Hub genes were identified based on the centrality metrics: degree, which was caluclated using igraph_2.1.4. \n
+  The acquired network and top hub genes are visualized using igraph_2.1.4. \n
+  Upregulated features are shown in purple, downregulated features are shown in skyblue, and their direct neighbors are shown in grey.\n
+  The size of the nodes corresponds to their degree (number of connections).\n
+  "))
 
-The threshold for significance was set at an FDR-adjusted p-value (padj) of less than 0.05. Enrichment results were summarized with normalized enrichment scores (NES), nominal p-values, and FDR q-values. Leading-edge analysis was conducted to identify the subset of genes that contributed most significantly to the enrichment results for each significantly enriched celltype.
+writeLines(out, paste0(OUTPUT, "/README.txt"))
+out
 
-The fgsea analysis revealed significant enrichment of 4 celltypes (Protoplasmic astrocyte, Fibrous astrocyte, Microglia, Endothelial cell) for the cytosolic fraction, 2 celltypes (Endothelial cell, T cell) for the insoluble fraction, but no celltype for the synaptosomal fraction. 
+```
 
 # Deliverables
 

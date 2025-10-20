@@ -820,8 +820,8 @@ p1
 invisible(dev.off())
 
 p1 = makeDotplot_ORA_KEGG(list(`ALL FRAC.`=kk.sig), index.list=1, 
-                       p.adjust.thresh=0.05)
-pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_p.adjustCutoff0.05_comp1.pdf"), h=4, w=8)
+                       p.adjust.thresh=0.05, title="ORA_KEGG")
+pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_p.adjustCutoff0.05_comp1.pdf"), h=4.5, w=8)
 p1
 invisible(dev.off())
 ```

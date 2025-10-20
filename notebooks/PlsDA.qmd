@@ -611,24 +611,27 @@ lapply(qval.thresh, function(q) {
       print(makeDotplot_ORA_KEGG(
         list(`ALL FRAC.`=kk.sig), 
         index.list=1, 
-        p.adjust.thresh=q))
+        p.adjust.thresh=q, 
+        title="PLS-DA"))
     invisible(dev.off()) 
 })
 
 q = 0.1
 pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_p.adjustCutoff_", q, "_separately.pdf"), h=10, w=9)
   print(makeDotplot_ORA_KEGG(
-    list(Cytosolic=kk.sig_Cytosolic, Nuclear=kk.sig_Insoluble, Synaptosomal=kk.sig_Synaptosomal), 
+    list(CYTOSOLIC=kk.sig_Cytosolic, NUCLEAR=kk.sig_Insoluble, SYNAPTOSOMAL=kk.sig_Synaptosomal), 
     index.list=1:3, 
-    p.adjust.thresh=q))
+    p.adjust.thresh=q, 
+    title="PLS-DA"))
 invisible(dev.off()) 
 
 q = 0.05
 pdf(paste0(OUTDIR, "/pathwayAnalysis/KEGG_Pathways_DotPlot_p.adjustCutoff_", q, "_separately.pdf"), h=6.5, w=9)
   print(makeDotplot_ORA_KEGG(
-    list(Cytosolic=kk.sig_Cytosolic, Nuclear=kk.sig_Insoluble, Synaptosomal=kk.sig_Synaptosomal), 
+    list(CYTOSOLIC=kk.sig_Cytosolic, NUCLEAR=kk.sig_Insoluble, SYNAPTOSOMAL=kk.sig_Synaptosomal), 
     index.list=1:3, 
-    p.adjust.thresh=q))
+    p.adjust.thresh=q,
+    title="PLS-DA"))
 invisible(dev.off()) 
 
 ```
