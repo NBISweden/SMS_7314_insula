@@ -337,7 +337,7 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh) {
   return(list(protein.list_UP=protein.list_UP, protein.list_DOWN=protein.list_DOWN, dir.list=dir.list))
 }
 
-log2FoldChange_thresh = 0.3
+log2FoldChange_thresh = 0.22
 padj_thresh = 0.2
 protein.list = makeUpset(log2FoldChange_thresh, padj_thresh)
 saveRDS(protein.list, paste0(OUTDIR, "/Protein.list.RDS"))
@@ -351,7 +351,7 @@ saveRDS(protein.list, paste0(OUTDIR, "/Protein.list.RDS"))
 * Meanwhile, we also combine top (feature loading on each component < -0.035/< -0.035) down regulated proteins (in Alcoholism, logFC<0) from all three compartments for both components, and performed ORA analysis to look for KEGG pathways that those down-regulated proteins enriched in. 
 
 ```{r, message=FALSE, warning=FALSE}
-# final.models = readRDS(paste0(OUTDIR, "final_models.RDS"))
+final.models = readRDS(paste0(OUTDIR, "final_models.RDS"))
 compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
 names = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
 loading_cutoff = 0.035
@@ -547,11 +547,11 @@ get.kk.sig = function(entrez_list_sig, NAME, universe) {
     if (length(gl)>0) {
       set.seed(1234)
       kk= enrichKEGG(gene = gl,
-                     organism = 'hsa',
-                     pvalueCutoff = 1,
-                     qvalueCutoff = 1,
-                     universe = universe,
-                     use_internal_data = F)
+           organism = 'hsa',
+           pvalueCutoff = 1,
+           qvalueCutoff = 1,
+           universe = universe,
+           use_internal_data = F)
       print("Convert Entrez ID back to gene symbol")
       source("../src/convertEntrez2Symbol.R")
       kk@result$geneID_Symbol = 
@@ -559,10 +559,10 @@ get.kk.sig = function(entrez_list_sig, NAME, universe) {
         as.character()
       options(java.parameters = "-Xmx1000m")
       write.xlsx(as.data.frame(kk@result), 
-                 paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_", NAME, ".xlsx"),
-                 sheetName = paste0(i, "_plsDA"),
-                 col.names=TRUE, row.names=FALSE,
-                 append=T)
+           paste0(OUTDIR, "pathwayAnalysis/KEGG_ORA_", NAME, ".xlsx"),
+           sheetName = paste0(i, "_plsDA"),
+           col.names=TRUE, row.names=FALSE,
+           append=T)
     }
     kk
   }) %>% setNames(names(entrez_list_sig)) 
@@ -636,7 +636,7 @@ invisible(dev.off())
 
 ```
 
-## ORA on synGO
+## ORA on plsDA-selected proteins using synGO
 
 ```{r}
 # Import plsDA selected genes

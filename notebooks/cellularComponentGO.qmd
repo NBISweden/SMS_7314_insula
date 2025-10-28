@@ -266,7 +266,8 @@ CC.list = lapply(seq_along(unique.protein.list), function(i) {
   ego 
 })
 
-saveRDS(CC.list, paste0(OUTDIR, "GO_CC_uniqueProteins.rds"))
+saveRDS(CC.list, paste0(OUTDIR, "/GO_CC_uniqueProteins.rds"))
+# CC.list = readRDS(paste0(OUTDIR, "/GO_CC_uniqueProteins.rds"))
 
 library(xlsx)
 if (file.exists(paste0(OUTDIR, "GO_CC.xlsx"))) {
@@ -282,18 +283,19 @@ lapply(seq_along(CC.list), function(i) {
              append=T)
 })
 
-p.adjust.thresh = 0.05
 
+p.adjust.thresh = 0.05
 combined = lapply(seq_along(CC.list), function(i) {
   c = CC.list[[i]]
-  d = c@result[c@result$p.adjust<p.adjust.thresh,] %>% mutate(Fraction=names[i])
-  keep = min(20, nrow(d))
+  d = c@result[c@result$p.adjust<p.adjust.thresh,] %>% 
+    mutate(Fraction=compartments_new[i])
+  keep = min(30, nrow(d))
   d[1:keep, ]
 }) %>% Reduce(rbind, .)
 
 combined$Description = factor(combined$Description, 
       levels = rev(unique(combined$Description)))
-pdf(paste0(OUTDIR, "/GO_C_uniqueProteins.pdf"), h=10.5, w=11.5)
+pdf(paste0(OUTDIR, "/GO_C_uniqueProteins.pdf"), h=12, w=11.5)
 ggplot(combined, aes(x=Count,y=Description,size=p.adjust)) +
   geom_point(shape=21, aes(size=p.adjust, fill=Fraction)) +
   facet_wrap(~Fraction, ncol=3) +
@@ -307,6 +309,7 @@ ggplot(combined, aes(x=Count,y=Description,size=p.adjust)) +
     strip.text.x = element_text(size = 12)) +
   labs(caption=paste0("FDR < ", p.adjust.thresh))
 dev.off()
+
 
 ```
 

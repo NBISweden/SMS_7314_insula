@@ -117,7 +117,7 @@ limma = lapply(compartments, function(i) {
   dat$Protein = dat$Protein_IDs
   dat
 }) %>% setNames(compartments) 
-limma2 = limma %>% Reduce(rbind, .) %>% filter(adj.P.Val<0.2)
+limma2 = limma %>% Reduce(rbind, .) %>% filter(adj.P.Val<0.2&abs(logFC)>0.22)
 limma2 = limma2[!duplicated(limma2$Protein_IDs), ]
 
 
@@ -212,6 +212,39 @@ write.table(table, "../results/rerun/Additional/GWASoverlapping.csv", sep="\t",
             col.names=T, row.names=F, quote=F)
 ```
 
+```
+[1] "Overlapping between Limma differential genes and GWAS study Zhou2023: "
+[1] "European:"
+[1] "CADM1" "ACSS3"
+[1] "Cross ancestry: "
+[1] "ACSS3"
+[1] "Overlapping between Limma differential genes and GWAS study Saunders2022: "
+[1] "European:"
+[1] "CPNE4"   "HNRNPH1" "ACSS3"  
+[1] "Trans_ancestry: "
+[1] "CPNE4"   "CTNNA1"  "HNRNPH1" "ACSS3"   "DCLK1"   "SAMHD1" 
+[1] "Overlapping between Limma differential genes and GWAS study Icick2025: "
+[1] "European:"
+character(0)
+[1] "Multi_ancestry: "
+character(0)
+[1] "Overlapping between DIABLO selected genes and GWAS study Zhou2023: "
+[1] "European:"
+[1] "ACSS3"
+[1] "Cross_ancestry"
+[1] "ACSS3"
+[1] "Overlapping between DIABLO selected genes and GWAS study Saunders2022: "
+[1] "European:"
+[1] "ACSS3"
+[1] "Trans_ancestry"
+[1] "ACSS3"
+[1] "Overlapping between DIABLO selected genes and GWAS study Icick2025: "
+[1] "European:"
+character(0)
+[1] "Multi_ancestry: "
+character(0)
+[1] 7
+```
 
 
 

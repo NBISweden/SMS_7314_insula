@@ -916,6 +916,7 @@ lapply(names(rslt.list), function(i) {
 Volcano plot
 
 ```{r}
+
 # OUTDIR_QC = paste0(outDir, "/QC/")
 # OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
 # dataTable.list_SL_IRS_TMM =
@@ -934,20 +935,21 @@ doVolcano = function(resi, NAME, lfcShrink=F) {
   tmp <- as.data.frame(toExport) %>%
     filter(!is.na(adj.P.Val)) %>%
     mutate(sig = case_when(
-    adj.P.Val < 0.2 & logFC > 0.3  ~ "up",
-    adj.P.Val < 0.2 & logFC < -0.3 ~ "down",
+    adj.P.Val < 0.2 & logFC > 0.22  ~ "up",
+    adj.P.Val < 0.2 & logFC < -0.22 ~ "down",
     TRUE                            ~ "nonSig"
   ))
   tmpSignif <- tmp %>%
-    filter(P.Value < quantile(tmp$P.Value, 0.01) & sig!="nonSig")
+    filter(P.Value < quantile(tmp$P.Value, 0.2) & sig!="nonSig")
   
   p = ggplot(data = tmp, aes(logFC, -log10(adj.P.Val), col = sig)) + 
     geom_point() + 
     xlab("Log2 Fold Change") +
-    geom_text_repel(data = tmpSignif, aes(logFC, -log10(adj.P.Val), 
-                                          label = Protein_IDs)) +
+    geom_text_repel(
+      data = tmpSignif, aes(logFC, -log10(adj.P.Val), 
+      label = Protein_IDs, max.overlaps = Inf)) +
     geom_hline(yintercept = -log10(0.2), lty = 2) +
-    geom_vline(xintercept = c(-0.3, 0.3), lty = 2) + 
+    geom_vline(xintercept = c(-0.22, 0.22), lty = 2) + 
     scale_colour_manual(values = c("down"="blue", "nonSig"="black", "up"="red")) + 
     theme(legend.position="none") +
     ggtitle(ifelse(lfcShrink, paste0(NAME, "_lfcShrink"), paste0(NAME, "")))
@@ -999,13 +1001,13 @@ invisible(dev.off())
 NOTE: the batch effects were not removed from those PCA plots
 
 ```{r}
-# design.table.list = lapply(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"), function(i) {
-#   readr::read_table(paste0(designP, "/design_", i, ".tsv"))
-# }) %>% setNames(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"))
+design.table.list = lapply(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"), function(i) {
+  readr::read_table(paste0(designP, "/design_", i, ".tsv"))
+}) %>% setNames(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"))
 
 DEGtops = lapply(seq_along(rslt.list), function(d) {
   if (d<3) {
-    rslt.list[[d]] %>% filter(adj.P.Val<0.2&abs(logFC)>0.3) %>%
+    rslt.list[[d]] %>% filter(adj.P.Val<0.2&abs(logFC)>0.22) %>%
       pull(Protein_IDs)   
   } else {
     rslt.list[[d]] %>% top_n(n = 20, wt=adj.P.Val) %>%
@@ -1018,14 +1020,14 @@ makePCAplot(dataTable.list_SL_IRS_TMM, design.table.list,
     
 ```
 
-## Barplot of significant proteins abundance (adj.P.Val\<0.2&logFC\>0.3)
+## Barplot of significant proteins abundance (adj.P.Val\<0.2&logFC\>0.22)
 
 ```{r}
 plotProteins = function(mat, design_matrix) {
   nCounts = mat %>% as.data.frame() %>%
     gather(-c(Protein_IDs,Genes, Gene_names, logFC,AveExpr,t,P.Value,adj.P.Val,B), 
            key="sample", value="NormalizedAbundance") %>% 
-    filter(adj.P.Val<0.2&abs(logFC)>0.3) %>% full_join(design_matrix) %>% 
+    filter(adj.P.Val<0.2&abs(logFC)>0.22) %>% full_join(design_matrix) %>% 
     arrange(adj.P.Val, logFC)
   #library(plyr)
   df = ddply(nCounts, .(Batch, Condition, Protein_IDs), summarize,
@@ -1111,7 +1113,7 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh, newNames) {
   return(list(protein.list_UP=protein.list_UP, protein.list_DOWN=protein.list_DOWN))
 }
 
-log2FoldChange_thresh = 0.3
+log2FoldChange_thresh = 0.22
 padj_thresh = 0.2
 newNames = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
 protein.list = makeUpset(log2FoldChange_thresh, padj_thresh, newNames=newNames)
@@ -1163,7 +1165,7 @@ lapply(rslt.list, function(r) {
 })
 
 print("Yes, there is, we need to keep the one with the lowest adj.p.value")
-getEntrez = function(rslt.list, sig.level, logFC.cutoff=0.3) {
+getEntrez = function(rslt.list, sig.level, logFC.cutoff=0.22) {
   entrez_list_sig = lapply(rslt.list, function(r) {
     universe =  arrange(r, adj.P.Val) %>% .[!duplicated(.[, "Genes"]), ] %>%
       mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
@@ -1202,7 +1204,8 @@ getEntrez = function(rslt.list, sig.level, logFC.cutoff=0.3) {
   return(entrez_list_sig)
 }
 
-entrez_list_sig = getEntrez(rslt.list, sig.level=0.2, logFC.cutoff=0.3)
+entrez_list_sig = 
+  getEntrez(rslt.list, sig.level=0.2, logFC.cutoff=0.22)
 OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
 ```
 
@@ -1295,14 +1298,15 @@ kk.sig = readRDS(paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
 
 ### Dotplot showing significant KEGG pathways
 
-```{r}
+```{r, fig.width=8, fig.height=10}
 outDir = "../results/rerun/"
 OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
 source("../src/makeDotplot.R")
 p1 = makeDotplot_ORA_KEGG(
   rslt=setNames(kk.sig,c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")), 
   index.list=1:2, p.adjust.thresh=0.01, title="Limma")
-pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.01.pdf"), h=2.5, w=8)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.01.pdf"), h=2.9, w=8)
+# pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.01.pdf"), h=2.5, w=8)
 p1
 dev.off()
 rm(p1)
@@ -1310,7 +1314,8 @@ rm(p1)
 p1 = makeDotplot_ORA_KEGG(
   setNames(kk.sig,c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")), 
   index.list=1:2, p.adjust.thresh=0.05, title="Limma")
-pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.05.pdf"), h=3.7, w=9)
+# pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.05.pdf"), h=7, w=9)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.05.pdf"), h=4, w=9)
 p1
 dev.off()
 rm(p1)
@@ -1318,7 +1323,7 @@ rm(p1)
 p1 = makeDotplot_ORA_KEGG(
   setNames(kk.sig,c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")), 
   index.list=1:2, p.adjust.thresh=0.1, title="Limma")
-pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.1.pdf"), h=6.5, w=9.5)
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.1.pdf"), h=7, w=9.5)
 p1
 dev.off()
 rm(p1)
@@ -1461,7 +1466,7 @@ entrez_list = lapply(rslt.list, function(r) {
 print("Show the genes in the upregulated pathways for PELLET:")
 if(!is.null(kk.sig$PELLET$up)) {
   lapply(kk.sig$PELLET$up@result %>% 
-           filter(qvalue < 0.1) %>% 
+           filter(p.adjust < 0.05) %>% 
            .[, "ID"], function(pathway) {
     node.sum = "sum"
     dir.create(paste0(OUTDIR_ORA, "/Pellet"), showWarnings = F)
@@ -1483,7 +1488,7 @@ if(!is.null(kk.sig$PELLET$up)) {
 print("Show the genes in the downregulated pathways for PELLET:")
 if(!is.null(kk.sig$PELLET$up)) {
   lapply(kk.sig$PELLET$down@result %>% 
-           filter(qvalue < 0.1) %>% 
+           filter(p.adjust < 0.05) %>% 
            .[, "ID"], function(pathway) {
     #print(pathway)
     node.sum = "sum"
@@ -1505,7 +1510,7 @@ if(!is.null(kk.sig$PELLET$up)) {
 
 print("Show the genes in the upregulated pathways for CYTOSOLIC:")
 lapply(kk.sig$CYTOSOLIC$up@result %>% 
-         filter(qvalue < 0.1) %>% 
+         filter(p.adjust < 0.05) %>% 
          .[, "ID"], function(pathway) {
   node.sum = "sum"
   dir.create(paste0(OUTDIR_ORA, "/Cytosolic"), showWarnings = F)
@@ -1524,7 +1529,7 @@ lapply(kk.sig$CYTOSOLIC$up@result %>%
   
 print("Show the genes in the downregulated pathways for CYTOSOLIC:")
 lapply(kk.sig$CYTOSOLIC$down@result %>% 
-         filter(qvalue < 0.1) %>% 
+         filter(p.adjust < 0.05) %>% 
          .[, "ID"], function(pathway) {
   node.sum = "sum"
   dir.create(paste0(OUTDIR_ORA, "/Cytosolic"), showWarnings = F)
@@ -1650,7 +1655,7 @@ dev.off()
 #                  sheet=1, col_names=TRUE, na="", skip=0)
 # }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
 
-entrez_list_sig2 = getEntrez(rslt.list, sig.level=0.2, logFC.cutoff=0.3)
+entrez_list_sig2 = getEntrez(rslt.list, sig.level=0.2, logFC.cutoff=0.22)
 UP = c()
 DOWN = c()
 for (i in entrez_list_sig2) {
@@ -1674,14 +1679,14 @@ dev.off()
 p1 = makeDotplot_ORA_KEGG(kk.sig_all, index.list=1, 
                        p.adjust=0.05, title="Limma")
 pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.05_all.pdf"), 
-    h=2.5, w=6.5)
+    h=2.9, w=6.5)
 p1
 dev.off()
 
 p1 = makeDotplot_ORA_KEGG(kk.sig_all, index.list=1, 
                        p.adjust=0.01, title="Limma")
 pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.01_all.pdf"), 
-    h=2.5, w=6.5)
+    h=2.9, w=6.5)
 p1
 dev.off()
 
@@ -1835,6 +1840,7 @@ Spliceosome_genes
 ```
 
 ```{r}
+library(limma)
 out = capture.output(sessionInfo())
 writeLines(out, paste0(OUTDIR_ORA, "/seesionInfo.txt"))
 sessionInfo()

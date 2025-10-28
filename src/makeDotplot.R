@@ -1,7 +1,7 @@
 #' @param rslt pathway analysis result list
 #
 makeDotplot_ORA_KEGG = function(rslt, index.list=1:2, 
-                       p.adjust.thresh=0.1,title="") {
+                       p.adjust.thresh=0.1, title="") {
   
   print("Combine the ORA result to a long table...")
   if (is_empty(index.list)) {
@@ -63,3 +63,5 @@ makeDotplot_ORA_KEGG = function(rslt, index.list=1:2,
 
   return(p)
 }
+
+

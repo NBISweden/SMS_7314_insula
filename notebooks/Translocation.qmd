@@ -484,13 +484,15 @@ runfgsea = function(rslt.limma, Pathway.db, Pair = "SYNAPTOSOMAL2CYTOSOLIC",
   fgseaRes4Plotting$pathway = factor(fgseaRes4Plotting$pathway, 
        levels=rev(fgseaRes4Plotting$pathway))
   L = nrow(fgseaRes4Plotting)
+  fgseaRes4Plotting$Regulation=ifelse(fgseaRes4Plotting$NES>0, "UP", "DOWN")
   P = ggplot(fgseaRes4Plotting, aes(y=pathway, x=NES)) +
-    geom_point(shape=21, aes(size=padj), fill="coral3") +
+    geom_point(shape=21, aes(size=padj, fill=Regulation)) +
     ggtitle(paste0(Pair, ":GSEA_", db_name)) +
     xlab("NES") +
     ylab("") + labs(size="FDR") +
     theme_bw(base_size = 15) + 
     scale_size(trans="reverse") +
+    scale_fill_manual(values=c("DOWN"="#6D6D6D", "UP"="#B32B16")) +
     guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
     theme(strip.text.x = element_text(size = 14)) +
     labs(caption=paste0("FDR < ", padj.cutoff, " & 5<=setSize<=500"))
@@ -528,26 +530,28 @@ temp = lapply(seq_along(fgseaRes.list), function(i) {
   r = fgseaRes.list[[i]]
   # r$fgseaRes4Plotting %>% mutate(Group=c("C2S", "C2N", "S2N")[i]) %>%
   r$fgseaRes4Plotting %>% mutate(Group=c("C2S", "C2N", "N2S")[i]) %>%
-    select(Group, everything())
+    dplyr::select(Group, everything())
 }) %>% Reduce(rbind, .)
 
 padj.cutoff=0.05
 h_fold=0.105
-w=10
+w=10.5
 L = nrow(temp)
 # temp$Group = factor(temp$Group, levels=c("C2S", "C2N", "S2N"))
 temp = filter(temp, Group!="C2N")
 temp$Group = factor(temp$Group, levels=c("C2S", "N2S"))
 temp$pathway = factor(temp$pathway, levels=unique(rev(temp$pathway)))
 db_name = "SynGO"
+temp$Regulation = ifelse(temp$NES>0, "UP", "DOWN")
 P = ggplot(temp, aes(y=pathway, x=NES)) +
-    geom_point(shape=21, aes(size=padj, fill=Group)) +
+    geom_point(shape=21, aes(size=padj, fill=Regulation)) +
     facet_wrap(~Group, nrow=1) +
     ggtitle(paste0("GSEA_", db_name)) +
     xlab("NES") +
     ylab("") + labs(size="FDR") +
     theme_bw(base_size = 15) + 
     scale_size(trans="reverse") +
+    scale_fill_manual(values=c("DOWN"="#6D6D6D", "UP"="#B32B16")) +
     guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
     theme(strip.text.x = element_text(size = 14)) +
     labs(caption=paste0("FDR < ", padj.cutoff, " & 5<=setSize<=500"))
@@ -621,7 +625,7 @@ temp = lapply(seq_along(KEGG.fgseaRes.list), function(i) {
   r = KEGG.fgseaRes.list[[i]]$fgseaRes4Plotting %>% arrange(-NES)
   # r = r %>% mutate(Group=c("C2S", "C2N", "S2N")[i]) %>%
   r = r %>% mutate(Group=c("C2S", "C2N", "N2S")[i]) %>%
-    select(Group, everything())
+    dplyr::select(Group, everything())
   # filter(r, Group %in% c("C2N", "S2N"))
   filter(r, Group %in% c("C2N", "N2S"))
 }) %>% Reduce(rbind, .)
@@ -632,14 +636,16 @@ L = nrow(temp)
 # temp$Group = factor(temp$Group, levels=c("C2N", "S2N"))
 temp$Group = factor(temp$Group, levels=c("C2N", "N2S"))
 temp$pathway = factor(temp$pathway, levels=unique(rev(temp$pathway)))
+temp$Regulation = ifelse(temp$NES>0, "UP", "DOWN")
 P = ggplot(temp, aes(y=pathway, x=NES)) +
-    geom_point(shape=21, aes(size=padj, fill=Group)) +
+    geom_point(shape=21, aes(size=padj, fill=Regulation)) +
     facet_wrap(~Group, nrow=1) +
     ggtitle("GSEA_KEGG") +
     xlab("Normalized Enrichment Score") +
     ylab("") + labs(size="FDR") +
     theme_bw(base_size = 15) + 
     scale_size(trans="reverse") +
+    scale_fill_manual(values=c("DOWN"="#6D6D6D", "UP"="#B32B16")) +
     guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
     theme(strip.text.x = element_text(size = 14)) +
     labs(caption=paste0("FDR < ", padj.cutoff, " & 5<=setSize<=500"))
@@ -647,6 +653,8 @@ pdf(paste0(OUTPUT,"/GSEA/KEGG/Dotplot_enriched_padj",padj.cutoff,".pdf"),
     h=L*h_fold+2, w=w)
     print(P)
 dev.off()
+saveRDS(KEGG.fgseaRes.list, paste0(OUTPUT, "/GSEA/KEGG/GSEA_output.RDS"))
+# KEGG.fgseaRes.list = readRDS(paste0(OUTPUT, "/GSEA/KEGG/GSEA_output.RDS"))
 
 
 
@@ -668,7 +676,7 @@ KEGG.fgseaRes.list = lapply(seq_along(names(rslt.list)), function(i) {
 temp = lapply(seq_along(KEGG.fgseaRes.list), function(i) {
   r = KEGG.fgseaRes.list[[i]]$fgseaRes4Plotting %>% arrange(-NES)
   r = r %>% mutate(Group=c("C2S", "C2N", "N2S")[i]) %>%
-    select(Group, everything())
+    dplyr::select(Group, everything())
   # filter(r, Group %in% c("C2N", "S2N"))
   filter(r, Group %in% c("C2N", "N2S"))
 }) %>% Reduce(rbind, .)
@@ -679,14 +687,16 @@ L = nrow(temp)
 # temp$Group = factor(temp$Group, levels=c("C2N", "S2N"))
 temp$Group = factor(temp$Group, levels=c("C2N", "N2S"))
 temp$pathway = factor(temp$pathway, levels=unique(rev(temp$pathway)))
+temp$Regulation = ifelse(temp$NES>0, "UP", "DOWN")
 P = ggplot(temp, aes(y=pathway, x=NES)) +
-    geom_point(shape=21, aes(size=padj, fill=Group)) +
+    geom_point(shape=21, aes(size=padj, fill=Regulation)) +
     facet_wrap(~Group, nrow=1) +
     ggtitle("GSEA_KEGG") +
     xlab("Normalized Enrichment Score") +
     ylab("") + labs(size="FDR") +
     theme_bw(base_size = 15) + 
     scale_size(trans="reverse") +
+    scale_fill_manual(values=c("DOWN"="#6D6D6D", "UP"="#B32B16")) +
     guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
     theme(strip.text.x = element_text(size = 14)) +
     labs(caption=paste0("FDR < ", padj.cutoff, " & 5<=setSize<=500"))
@@ -696,7 +706,6 @@ pdf(paste0(OUTPUT,"/GSEA/KEGG/Dotplot_enriched_padj",padj.cutoff,".pdf"),
 dev.off()
 
 # save Limma analysis result
-saveRDS(KEGG.fgseaRes.list, paste0(OUTPUT, "/GSEA/KEGG/GSEA_output.RDS"))
 TableNames = list(
                    C2N = KEGG.fgseaRes.list$C2N$fgseaRes,
                    N2S = KEGG.fgseaRes.list$N2S$fgseaRes)

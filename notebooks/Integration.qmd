@@ -722,7 +722,9 @@ makeUpset = function(log2FoldChange_thresh, padj_thresh) {
   return(list(protein.list_UP=protein.list_UP, protein.list_DOWN=protein.list_DOWN))
 }
 
-log2FoldChange_thresh = 0.3
+OUTDIR = "../results/rerun/Integration/DIABLO/" 
+final.diablo.model = readRDS(paste0(OUTDIR, "final.diablo.model.RDS"))
+log2FoldChange_thresh = 0.22
 padj_thresh = 0.2
 protein.list = makeUpset(log2FoldChange_thresh, padj_thresh)
 

@@ -138,10 +138,17 @@ library(igraph)
 g = getIGraphFromPPI(
     getPPIbyName(c(up,down), type='induced'))
     # getPPIbyName(all, type='limited'))
+saveRDS(g, paste0(OUTPUT,"/PPI_graph_synaptosomal.rds"))
 tbl = getTableFromPPI(getPPIbyName(all, type='induced'))
 TableNames = list("Synaptosomal_up"=tbl)
 openxlsx::write.xlsx(TableNames, 
                      paste0(OUTPUT,"/PPInetwork.xlsx"))
+
+# g = readRDS(paste0(OUTPUT,"/PPI_graph_synaptosomal.rds"))
+length(igraph::V(g))
+# [1] 855
+length(igraph::E(g))
+# [1] 1132
 
 # sig_in_graph = findGenesByName(c(up,down)) %>% pull(GeneID) %>% as.character() %>%
 #     intersect(V(g)$name, .)
@@ -166,6 +173,10 @@ hubTable = hubTable[order(-hubTable$degree), ]
 head(hubTable$gene, 10)  # top hub genes
 openxlsx::write.xlsx(hubTable, 
   paste0(OUTPUT,"/CentralityMetrics_4hubgenes.xlsx"))
+# hubTable = openxlsx::read.xlsx(
+#   paste0(OUTPUT,"/CentralityMetrics_4hubgenes.xlsx"))
+mean(hubTable$degree)
+# 2.647953
 
 
 V(g)$degree = deg
@@ -214,9 +225,66 @@ print(ggraph(g, layout = "stress") +
 dev.off()
 })
 
+```
 
+
+## ORA on network-protens using synGO
+
+```{r}
+# synGO
+synGO = xlsx::read.xlsx2("../data/SynGO_bulk_download_release_20231201/syngo_ontologies.xlsx",
+                   sheetName = "Sheet 1", header=T) #%>% filter(domain=="BP")
+syn_ref = split(synGO$hgnc_symbol, synGO$name) 
+syn_set = lapply(names(syn_ref), function(s) {
+    set = syn_ref[[s]]
+    as.data.frame(list(gs_name = s, human_entrez_gene=strsplit(set, ", ")[[1]] %>% unique()))
+  }) %>% Reduce(rbind, .) 
+
+# All pls-DA selected proteins and their direct neighbors:
+networkProteins = igraph::V(g)$HumanName
+
+# ORA on network proteins using synGO
+# Run ORA on synGO
+library(clusterProfiler)
+synGO_ora_results = enricher(
+  gene = networkProteins, # A vector of your genes of interest
+  pvalueCutoff = 1, # Can choose a FDR cutoff
+  pAdjustMethod = "BH", # Method to be used for multiple testing correction
+  # universe = normData$SYNAPTOSOMAL$Genes%>%unique(), # A vector containing your background set genes
+  # The pathway information should be a data frame with a term name or
+  # identifier and the gene identifiers
+  TERM2GENE = syn_set%>%as.data.frame()
+  )
+synGO_ora_results@result
+
+
+
+# Make doplots for synGO results
+p.adjust.thresh = 0.05
+table.long = synGO_ora_results@result %>%
+  filter(p.adjust < p.adjust.thresh) %>%
+  mutate(Description = gsub(" \\(GO:.*\\)", "", Description))
+
+table.long$p.adjust = round(table.long$p.adjust, 2)
+
+p = ggplot(data=as.data.frame(table.long), aes(x=Count, y=Description)) +
+    geom_point(shape=21, fill="coral3", aes(size=p.adjust)) +
+    ggtitle("PPI+synGO") +
+    xlab("Count") +
+    ylab("") + 
+    labs(size="FDR") +
+    theme_bw(base_size = 15) + 
+    scale_size(trans="reverse") +
+    guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
+    theme(strip.text.x = element_text(size = 14)) +
+    labs(caption=paste0("FDR < ", p.adjust.thresh))
+
+pdf(paste0(OUTPUT, "/PPInetwork_ORA_synGO.pdf"), h=2, w=5.5)
+p
+dev.off()
 
 ```
+
 
 
 # Session Info

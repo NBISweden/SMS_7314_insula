@@ -292,15 +292,15 @@ colnames(SupplH) = c("ID", colnames(SupplH)[2:ncol(SupplH)])
 ## pls-DA ORA
 NAMES2 = c("Synaptosomal", "Insoluble", "Cytosolic")
 SupplI = lapply(seq_along(c(NAMES2, "all")), function(i) {
-  N = stringr::str_to_title(c(NAMES2, "ALL FRAC."))[i]
+  N = c(NAMES2, "ALL FRAC.")[i]
   up = read_excel(paste0("../results/rerun/plsDA/pathwayAnalysis/KEGG_ORA_", N, ".xlsx"),
                  sheet=1, col_names=TRUE, na="", skip=0)
   up$Reg = "Up(in AUD)"
-  up$Fraction = c(NAMES, "ALL FRAC.")[i]
+  up$Fraction = toupper(c(NAMES2, "ALL FRAC."))[i]
   dn = read_excel(paste0("../results/rerun/plsDA/pathwayAnalysis/KEGG_ORA_", N, ".xlsx"),
                  sheet=2, col_names=TRUE, na="", skip=0)
   dn$Reg = "Down(in AUD)"
-  dn$Fraction = c(NAMES, "ALL FRAC.")[i]
+  dn$Fraction = toupper(c(NAMES2, "ALL FRAC."))[i]
   rbind(up, dn)
 }) %>% Reduce(rbind, .)
 table(SupplI$Fraction)
@@ -424,7 +424,7 @@ SupplL = lapply(seq_along(NAMES_old), function(i) {
   d
 }) %>% Reduce(rbind, .)
 SupplL = SupplL %>% mutate(Fraction = gsub("PELLET", "NUCLEAR", fraction)) %>% 
-    select(-fraction)
+    dplyr::select(-fraction)
 
 ## All significant equivalence class pairs for MAP2  
 SupplM = lapply(seq_along(NAMES_old), function(i) {
