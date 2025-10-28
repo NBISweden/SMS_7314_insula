@@ -1,0 +1,641 @@
+---
+title: Subcellular proteomic analysis of the insula in alcohol dependence
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+toc: true
+number-sections: true
+format: 
+  html:
+    #embed-resources: true #This works from command line not from Rstudio
+    code-fold: false
+    code-tools: true
+    code-link: true
+    theme: pandoc
+    df-print: paged
+    html-math-method: katex #use katex for math text
+  pdf:
+    code-line-numbers: true
+    geometry: 
+      - top=30mm
+      - left=30mm
+  docx: default
+language:
+  code-summary: Click to show code
+editor_options:
+  chunk_output_type: inline
+editor: visual
+---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+```
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
+
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+
+# Import and process the data
+
+```{r}
+suppressPackageStartupMessages({
+  library(readxl)
+  library(dplyr)
+  library(xlsx)
+ 
+})
+```
+
+```{r}
+jName = "7314"
+inputP = "../data/Creative Proteomics_DATA/"
+# dataP = paste0("../data/input_", jName) #
+# dir.create(dataP, showWarnings=F, recursive=T) #
+designP = paste0("../data/design_", jName) #
+dir.create(designP, showWarnings=F, recursive=T) #
+outDir = "../results/rerun/"
+dir.create(outDir, recursive = T, showWarnings = F)
+```
+
+# Dotplot of KEGG ORA analysis on all cellular compartments combined: Limma + plsDA
+
+```{r}
+KEGG_ORA_result_all_limma = readRDS("../results/rerun/PathwayAnalysis/ORA/KEGG_ORA_result_all.RDS")
+KEGG_ORA_result_all_plsda = readRDS("../results/rerun/plsDA/pathwayAnalysis/KEGG_ORA_result_ALL FRAC..RDS")
+
+source("../src/makeDotplot.R")
+p1 = makeDotplot_ORA_KEGG(
+  rslt=list(Limma=KEGG_ORA_result_all_limma$`ALL FRAC.`, 
+            plsDA=KEGG_ORA_result_all_plsda), 
+  index.list=1:2, p.adjust.thresh=0.05, title="All FRAC.")
+pdf("../results/rerun/plsDA/pathwayAnalysis/KEGG_DotPlot_pAdjustCutoff0.05_AllFrac_limma_plsDA.pdf", h=2.9, w=8)
+p1
+dev.off()
+rm(p1)
+```
+
+
+
+
+
+```{r}
+print("Make the design table without ref...")
+print("We will get meta data info from sheet 5 of each excel file")
+print("This is the company normalized data, whose count will NOT be analyzed here...")
+
+print("Get sample names")
+file = '~$Data result_CYTOSOLIC extracts (CPJS05122201).xlsx'
+if (file.exists(file)) {file.remove(file)}
+sample_names = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = F) %>%
+  sapply(., function(i) strsplit(i, " ")[[1]][1]) %>%
+  as.character()
+
+
+print("Import all three datasets together...")
+file = '~$Data result_CYTOSOLIC extracts (CPJS05122201).xlsx'
+if (file.exists(file)) {file.remove(file)}
+inputfiles = list.files(inputP, pattern=").xlsx$", recursive = T, full.names = T)
+dataTable.list0 = suppressWarnings(lapply(inputfiles, function(x) {
+  dat = read_excel(x, sheet=5, col_names=TRUE, na="", skip=0)
+  ncol = ncol(dat)
+  dat = read_excel(x, sheet=5, col_names=TRUE, na="", skip=0,
+        col_types=c(rep("text", 4), rep("numeric", ncol(dat)-4-1), 
+                    rep("text", 1)))
+  dat = dat %>% 
+    .[, c('Protein IDs', "Gene names",
+          grep('intensity', 
+               colnames(dat), value=T))]
+  print("Only Pellet has two pool samples for each batch, will remove them...")
+  dat = dat %>% .[, colnames(dat)[!grepl('MIX', colnames(dat))]] 
+  colnames(dat) = gsub(" ", "_", colnames(dat))
+  dat
+  })) %>% setNames(sample_names)
+
+
+design.table.list = suppressWarnings(lapply(seq_along(dataTable.list0), function(i) {
+  dataTable = dataTable.list0[[i]]
+  sampleNames = colnames(dataTable)[3:ncol(dataTable)]
+  tab = sapply(sampleNames, function(j) {
+    strsplit(j, "_")[[1]][c(3, 4, 5, 6, 7)]
+  }) %>% as.character()
+  design.table = matrix(tab, ncol=5, byrow=T) %>% as.data.frame() %>%
+    na.omit() %>% setNames(c("sample", "Batch", "sampleID", "Fraction", "Condition")) %>%
+    dplyr::mutate(sample=paste0(sample, "_", Batch))
+  design.table$Condition = tolower(design.table$Condition)
+  design.table.filename = paste0(designP, "/design_", sample_names[i], ".tsv")
+  write.table(design.table, design.table.filename, quote=F, row.names=F, sep="\t")
+  design.table$Condition = ifelse(design.table$Condition=="control", "UC", "AUD")
+  design.table
+})) %>% setNames(sample_names)
+
+moreMeta <- tibble::tribble(
+  ~sampleID,     ~Sex,    ~Age,  ~RIN,   ~PMI,  ~Condition,   ~pH, ~TissueStorageTime_months,
+ #---------|-----------|-------|-------|-------|------------|------|--------------------------|
+  "13005",      "Male",     45,    7.4,   8.48,     "AUD",   6.2,                   109.4,
+  "13172",      "Male",     49,    9.4,   7.32,     "AUD",   6.6,                    85.6,
+  "13189",    "Female",     59,    7.8,    7.5,     "AUD",   6.1,                    84.2,
+  "13193",      "Male",     38,    9.5,   7.78,     "AUD",   6.7,                    83.5,
+  "13234",    "Female",     51,    9.6,  10.12,     "AUD",   6.8,                    78.2,
+  "13246",      "Male",     59,    8.8,    9.5,     "AUD",   6.2,                    76.7,
+  "13271",      "Male",     65,    7.1,  11.97,     "AUD",   6.3,                    72.4,
+  "13296",      "Male",     55,    8.9,   7.68,     "AUD",   6.5,                    69.4,
+  "13327",      "Male",     58,    8.3,    6.7,     "AUD",   6.3,                    65.4,
+  "13346",      "Male",     53,    7.0,    9.3,     "AUD",   6.2,                    63.3,
+  "13211",      "Male",     52,    8.8,  12.33,     "AUD",   6.1,                    81.1,
+  "13504",      "Male",     50,    7.1,  11.25,     "AUD",   6.5,                    44.2,
+  "13350",      "Male",     45,    8.9,   7.08,      "UC",   6.7,                    62.7,
+  "13259",      "Male",     48,    8.5,   8.25,      "UC",   6.3,                    74.8,
+  "13475",    "Female",     58,    7.8,   8.75,      "UC",   6.8,                    48.5,
+  "13414",      "Male",     41,    8.1,   9.85,      "UC",   6.7,                    54.5,
+  "13149",    "Female",     46,    7.5,    7.6,      "UC",   6.3,                    88.3,
+  "13645",      "Male",     58,    9.3,   14.4,      "UC",   6.5,                    23.0,
+  "13428",      "Male",     64,    9.0,   9.22,      "UC",   6.7,                    53.5,
+  "13048",      "Male",     54,    9.3,    8.4,      "UC",   6.8,                   103.2,
+  "13170",      "Male",     59,    8.9,  11.65,      "UC",   6.7,                    86.0,
+  "13032",      "Male",     52,    8.1,   8.97,      "UC",   6.4,                   105.9,
+  "13068",      "Male",     48,    9.5,  12.78,      "UC",   6.8,                   100.1,
+  "13298",      "Male",     50,    8.5,  10.67,      "UC",   6.7,                    69.3,
+)
+
+design.table.list = lapply(design.table.list, function(t) {
+  dplyr::full_join(t, moreMeta)
+})
+```
+
+```{r}
+# lapply(design.table.list, function(r) {
+#   r = r[, 2:ncol(r)] %>% apply(.,2, as.numeric)
+#   cor(r, method="spearman")
+# })
+
+r = design.table.list[[1]]
+r = r[, 2:ncol(r)] %>% apply(.,2, function(x) {
+  if (is.character(x)) {
+    as.numeric(as.factor(x))
+  } else {
+    x
+  }
+}) %>% as.data.frame()
+cors = cor(r, method="spearman")
+write.table(cors, "../results/rerun/QC/CorrelationMatrix_spearman.csv",
+            sep="\t", quote=FALSE, col.names=NA)
+
+cor.test(r$RIN, r$pH, method="spearman")
+# Spearman's rank correlation rho
+# 
+# data:  r$RIN and r$pH
+# S = 965.15, p-value = 0.002947
+# alternative hypothesis: true rho is not equal to 0
+# sample estimates:
+#       rho 
+# 0.5803713  
+
+cor.test(r$Condition, r$pH, method="spearman")
+# Spearman's rank correlation rho
+# 
+# data:  r$Condition and r$pH
+# S = 1120.5, p-value = 0.0104
+# alternative hypothesis: true rho is not equal to 0
+# sample estimates:
+#       rho 
+# 0.5128056 
+```
+
+```{r}
+```
+
+# Save supplementary tables to a file:
+
+```{r}
+outDir = "../results/rerun/"
+OUTDIR_QC = paste0(outDir, "/QC/")
+dataTable.list_SL_IRS_TMM =
+  readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+NAMES = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+
+
+# ORA
+SupplG = lapply(1:3, function(i) {
+  d = read_excel(paste0("../results/rerun/PathwayAnalysis/ORA_GO_C/GO_CC.xlsx"),
+                 sheet=i, col_names=TRUE, na="", skip=0)
+  d$Fraction = NAMES[i]
+  d
+}) %>% setNames(NAMES) %>% Reduce(rbind, .)
+SupplG$Fraction[SupplG$Fraction=="PELLET"] = "NUCLEAR"
+
+# Limma
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+  read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+}) %>% setNames(NAMES)
+rslt.list$CYTOSOLIC[, "133C_G2"] = ""
+for (i in seq_along(rslt.list)) {
+  rslt.list[[i]]$Fraction = names(rslt.list)[i] 
+}
+SuppA = Reduce(rbind, rslt.list)
+SuppA$Fraction[SuppA$Fraction=="PELLET"] = "NUCLEAR"
+
+OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis/ORA/")
+ORA.list = lapply(1:2, function(j) {
+  i = names(dataTable.list_SL_IRS_TMM)[j]
+  K = NAMES[j]
+  A = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_", i, ".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+  A$Fraction = K
+  A$Regulation = "Up"
+  B = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_", i, ".xlsx"),
+                 sheet=2, col_names=TRUE, na="", skip=0)
+  B$Fraction = K
+  B$Regulation = "Down"
+  rbind(A,B)
+})
+SupplB = Reduce(rbind, ORA.list)
+SupplB$Fraction[SupplB$Fraction=="PELLET"] = "NUCLEAR"
+
+SupplC1 = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_all.xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+SupplC1$Fraction = "All"
+SupplC1$Regulation = "Up"
+
+
+SupplC2 = read_excel(paste0(OUTDIR_ORA, "KEGG_ORA_all.xlsx"),
+                 sheet=2, col_names=TRUE, na="", skip=0)
+SupplC2$Fraction = "All"
+SupplC2$Regulation = "Down"
+
+SupplC = rbind(SupplC1, SupplC2)
+
+SupplB = rbind(SupplB, SupplC)
+
+
+
+# pls-DA
+## Feature loading
+SupplH = read_excel("../results/rerun/plsDA/pathwayAnalysis/top_loading_proteins_used4ORA.xlsx")
+colnames(SupplH) = c("ID", colnames(SupplH)[2:ncol(SupplH)])
+
+
+## pls-DA ORA
+NAMES2 = c("Synaptosomal", "Insoluble", "Cytosolic")
+SupplI = lapply(seq_along(c(NAMES2, "all")), function(i) {
+  N = stringr::str_to_title(c(NAMES2, "ALL FRAC."))[i]
+  up = read_excel(paste0("../results/rerun/plsDA/pathwayAnalysis/KEGG_ORA_", N, ".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+  up$Reg = "Up(in AUD)"
+  up$Fraction = c(NAMES, "ALL FRAC.")[i]
+  dn = read_excel(paste0("../results/rerun/plsDA/pathwayAnalysis/KEGG_ORA_", N, ".xlsx"),
+                 sheet=2, col_names=TRUE, na="", skip=0)
+  dn$Reg = "Down(in AUD)"
+  dn$Fraction = c(NAMES, "ALL FRAC.")[i]
+  rbind(up, dn)
+}) %>% Reduce(rbind, .)
+table(SupplI$Fraction)
+SupplI$Fraction[SupplI$Fraction=="PELLET"] = "NUCLEAR"
+
+
+# DIABLO
+## Selected feature loading
+comps = c("Comp1", "Comp2")
+NAMES_old = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+SupplJ = lapply (comps, function(c) {
+  lapply (seq_along(NAMES_old), function(i) {
+    N = NAMES_old[i]
+    d = read_excel("../results/rerun/Integration/DIABLO/selectedProteins/SelectedFeatures_weights.xlsx",
+                   sheet=paste0(c, "_", N), col_names=TRUE, na="", skip=0)
+    colnames(d)[2] = "Feature_loading"
+    d$Fraction = NAMES[i]
+    d$Component = c
+    d
+  }) %>% Reduce(rbind, .)
+}) %>% Reduce(rbind, .)
+SupplJ$Fraction[SupplJ$Fraction=="PELLET"] = "NUCLEAR"
+
+
+
+## DIABLO_ORA
+SupplK = lapply(seq_along(c("up", "down")), function(i) {
+  r = c("up", "down")[i]
+  d = read_excel("../results/rerun/Integration/DIABLO/pathwayAnalysis/KEGG_ORA_comp1.xlsx",
+                   sheet=paste0(r, "_Diablo"), col_names=TRUE, na="", skip=0)
+  d$Reg = c("Up(in AUD)", "Down(in AUD)")[i]
+  # d$Analysis = "Diablo"
+  d
+}) %>% Reduce(rbind, .)
+colnames(SupplK)
+
+
+
+
+
+##########################################################
+
+# Drug targets
+dbs <- c("DSigDB", 
+         "MAGMA_Drugs_and_Diseases") #, "IDG_Drug_Targets_2022"
+OUTDIR_diff_DRAG = "/Users/ekol-yal/Documents/Project/2024/SMS_7314_insula/results/rerun/PathwayAnalysis/ORA/DrugTargets/"
+i= "up"
+up = lapply (dbs, function(d) {
+    A = read_excel(paste0(OUTDIR_diff_DRAG, "/EnrichR_", i, "_", d,".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+    A$Reg = "Up(in AUD)"
+    A$DataBase = d
+    A
+})
+i="down"
+down = lapply (dbs, function(d) {
+    A = read_excel(paste0(OUTDIR_diff_DRAG, "/EnrichR_", i, "_", d,".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+    A$Reg = "Down(in AUD)"
+    A$DataBase = d
+    A
+})
+SupplD = Reduce(rbind, c(up, down))
+table(SupplD$Reg)
+table(SupplD$DataBase)
+
+
+
+dbs <- c("DSigDB", 
+         "MAGMA_Drugs_and_Diseases") # , "IDG_Drug_Targets_2022"
+OUTDIR_DIABLO_DRAG = "/Users/ekol-yal/Documents/Project/2024/SMS_7314_insula/results/rerun/Integration/DIABLO/DrugTargets/"
+i= "up"
+up = lapply (dbs, function(d) {
+    A = read_excel(paste0(OUTDIR_DIABLO_DRAG, "/EnrichR_", i, "_", d,".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+    A$Reg = "Up(in AUD)"
+    A$DataBase = d
+    A
+})
+i="down"
+down = lapply (dbs, function(d) {
+    A = read_excel(paste0(OUTDIR_DIABLO_DRAG, "/EnrichR_", i, "_", d,".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+    A$Reg = "Down(in AUD)"
+    A$DataBase = d
+    A
+})
+SupplF = Reduce(rbind, c(up, down))
+table(SupplF$Reg)
+table(SupplF$DataBase)
+
+
+# Drug repurposing analysis ***NEW
+SupplO = read_excel("../results/rerun/Additional/DrugTarget_L1000/onlyMatureNeuron/L1000SignatureScoreCutoff2/perturbagen_candidates_OnlyStrongDrugSignatures.xlsx",
+                 sheet=1, col_names=TRUE, na="", skip=0)
+SupplO$Fraction[SupplO$Fraction=="INSOLUBLE"] = "NUCLEAR"
+
+# Design Table
+library(tidyverse)
+TMTset = c("TMT16", "TMT18", "TMT16")
+design.table2 = lapply(seq_along(design.table.list), function(i) {
+  m = design.table.list[[i]]
+  m$Fraction = NAMES[i]
+  m$TMTlableReagent = paste0(TMTset[i], "-", m$sample)
+  m$TMTlableReagent = gsub("_G1", "", m$TMTlableReagent)
+  m$TMTlableReagent = gsub("_G2", "", m$TMTlableReagent)
+  m = m %>% dplyr::rename(TMTbatch=Batch)
+  m
+}) %>% Reduce(rbind, .)
+
+design.table2$Fraction[design.table2$Fraction=="PELLET"] = "NUCLEAR" ###
+
+# Differential alternative splicing analysis
+## Only the most significant equivalence class pair for each protein
+SupplL = lapply(seq_along(NAMES_old), function(i) {
+  f = NAMES_old[i]
+  d = readr::read_tsv(
+    paste0("../results/rerun/AlternativeSplicing/", f, "/DAS_results_gene_level.tsv"),
+    show_col_types = FALSE)
+  d$fraction = NAMES[i]
+  d
+}) %>% Reduce(rbind, .)
+SupplL = SupplL %>% mutate(Fraction = gsub("PELLET", "NUCLEAR", fraction)) %>% 
+    dplyr::select(-fraction)
+
+## All significant equivalence class pairs for MAP2  
+SupplM = lapply(seq_along(NAMES_old), function(i) {
+  f = NAMES_old[i]
+  d = readr::read_tsv(
+    paste0("../results/rerun/AlternativeSplicing/", f, "/ALL_ISO_TESTS/DAS_results_isoform_level_MAP2.tsv"),
+    show_col_types = FALSE)
+  d$fraction = NAMES[i]
+  d
+}) %>% Reduce(rbind, .)
+
+## ORA analysis
+SupplN = readr::read_tsv(
+    paste0("../results/rerun/AlternativeSplicing/KEGG_ORG/KEGG_ORG_sig.tsv"),
+    show_col_types = FALSE)
+
+## Celltype analysis
+SupplT = read_excel("../results/rerun/Celltype/CellType_prediction_GSEA.xlsx",
+                 sheet=1, col_names=TRUE, na="", skip=0)
+SupplT = SupplT %>% mutate(Fraction = gsub("INSOLUBLE", "NUCLEAR", Fraction))
+
+## Translocation indices
+SupplW = read.table("../results/rerun/Translocation/TranslocaitonIndex.csv",
+                    header=T)
+colnames(SupplW) = gsub("X", "", colnames(SupplW))
+
+## GSEA with SynGO on synaptosomal differential result
+SupplSS = openxlsx::read.xlsx("../results/rerun/PathwayAnalysis/SynGO/Enriched_SynGO.xlsx")
+
+
+## Translocation indices limma results
+all.samples = colnames(SupplW) %>% setdiff(., c("Protein_IDs", "Translocation"))
+SupplV.list = readRDS("../results/rerun/Translocation/Limma/Limma_results.RDS")
+SupplV = lapply(seq_along(SupplV.list), function(i) {
+  V = SupplV.list[[i]]
+  if (!("133C_G2" %in% colnames(V))) {
+    V$`133C_G2`="NA"}
+  V$Translocation = names(SupplV.list)[i]
+  V#V[, c("Protein_IDs", "Translocation", all.samples)]
+}) %>% Reduce(rbind, .)
+
+## GSEA result on Translocation indices using SynGO
+SupplX.list = readRDS("../results/rerun/Translocation//GSEA/SynGO/GSEA_output_wSynGO.RDS")
+SupplX = lapply(c("C2S", "N2S"), function(i) {
+  X = SupplX.list[[i]]$fgseaRes %>% as.data.frame()
+  X$Translocation = i
+  X %>% select(Translocation, everything())  
+}) %>% Reduce(rbind, .)
+
+
+## GSEA result on Translocation indices using KEGG
+SupplY.list = readRDS("../results/rerun/Translocation/GSEA/KEGG/GSEA_output.RDS")
+SupplY = lapply(seq_along(SupplY.list[c("C2N", "S2N")]), function(i) {
+  Y = SupplY.list[[i]]$fgseaRes
+  Y$Translocation = names(SupplY.list)[i]
+  Y %>% select(Translocation, everything())
+}) %>% Reduce(rbind, .)
+
+
+TableNames = list("SE"=design.table2, "SG"=SupplG, "SA"=SuppA, "SB"=SupplB, "SH"=SupplH, "SI"=SupplI, "SJ"=SupplJ, "SK"=SupplK, "SO"=SupplO, "SL"=SupplL, "SM"=SupplM, "ST"=SupplT,
+                  "SV"=SupplV, "SSS"=SupplSS, "SX"=SupplX, "SY"=SupplY)
+
+# TableNames = list("SE"=design.table2, "SG"=SupplG, "SA"=SuppA, "SB"=SupplB, "SH"=SupplH, "SI"=SupplI, "SJ"=SupplJ, "SK"=SupplK, "SD"=SupplD, "SF"=SupplF, "SL"=SupplL, "SM"=SupplM)
+
+openxlsx::write.xlsx(TableNames, 
+             file = paste0("../doc/Figures_tables/SupplementaryTable.xlsx")) 
+
+```
+
+```{r}
+
+out = capture.output(cat("
+  SheetSE: Meta data table for the study subjects. RIN: RNA integrity number, PMI: postmortem interval time. \n\n
+
+  SheetSG: Over-representation analysis results for compartment-specific proteins using the Cellular Component subset of the Gene Ontology (GO) database.\n
+  	- ID. The GO term identifier — a unique accession number for a GO term in the Gene Ontology database.\n
+  	- Description. The biological meaning of the GO term (from the GO database).
+  	- GeneRatio. The proportion of your input genes (the foreground, e.g., compartment-specific proteins) that are annotated to this GO term.\n
+  	- BgRatio. The proportion of genes in the background (e.g., all quantified or all annotated genes) that belong to the same GO term.\n
+  	- pvalue. Raw p-value from the statistical test assessing whether the term is over-represented in your input list compared to background.\n
+  	- p.adjust. Adjusted p-value after multiple testing correction (Benjamini–Hochberg). Controls for false discovery rate (FDR).\n
+  	- qvalue. Another measure of FDR; in many implementations it’s equivalent to adjusted p-value but computed with slightly different methods (e.g., Storey’s q-value).\n
+  	- geneID. The list of genes from your input that are associated with this specific GO term (usually separated by /).\n\n
+
+  SheetSA: Limma differential gene table. The normalized protein abundance levels for each sample were also included.\n
+  	- logFC. The log₂ fold change between the two experimental conditions.\n
+  	- AveExpr. The average log₂ expression (or intensity) across all samples. This reflects the overall abundance of the protein.\n
+  	- t. The moderated t-statistic from limma’s empirical Bayes model — tests whether the logFC is significantly different from zero.\n
+  	- P.Value. The raw p-value.\n
+  	- adj.P.Val. The adjusted p-value after multiple testing correction (Benjamini–Hochberg FDR). This controls for false discoveries across all proteins tested.\n
+  	- B. The log-odds (B-statistic) that the protein is truly differentially expressed.\n
+		Higher B = higher posterior probability of being DE.\n
+		Values around 0 correspond to 50% chance, >2 = strong evidence.\n\n
+
+  SheetSB: ORA analysis result table showing the KEGG pathways enriched among the Limma-identified differential proteins for  the three cellular fractions. \n
+  	- ID. The unique identifier of the gene set \n
+  	- Description. The biological meaning or name of the gene set
+  	- GeneRatio. The proportion of your input (foreground) gene list that belongs to this gene set.\n
+  	- BgRatio. The proportion of the background gene set that belongs to this term.\n
+  	- pvalue. Raw p value\n
+  	- p.adjust. The multiple-testing corrected p-value (usually Benjamini–Hochberg FDR). Controls the false discovery rate across all tested terms.\n
+  	- qvalue. Alternative FDR measure (e.g., Storey’s q-value). Often similar to p.adjust.\n
+  	- Count. The number of input genes associated with this term.\n
+  	- geneID. The list of gene identifiers (e.g., Ensembl or UniProt IDs) from your input that are associated with this term.\n
+  	- geneID_Symbol. The same as geneID, but with gene symbols (e.g., VAMP1, RPS6KB1) instead of IDs. This is often added manually for readability.\n\n
+
+  SheetSH: Pls-DA selected proteins and their loadings on each of the two constructed components for each of the three cellular fractions. The regulational directions of the selected proteins are also shown.\n\n
+
+  SheetSI: ORA analysis result table showing the KEGG pathways enriched among the pls-DA selected proteins for the three cellular fractions. \n\n
+
+  SheetSJ: DIABLO selected proteins and their loadings on each of the two constructed components for each of the three cellular fractions. \n\n
+
+  SheetSK: ORA analysis result table showing the KEGG pathways enriched among the DIABLO selected proteins for the first component from all three cellular fractions together.\n\n
+
+  SheetSO: Spearman correlations between L1000 compound perturbation signatures (differential profile comparing to control) and Alcoholism profiles (comparing to control). \n
+  	- Pooled.cor: pooled correlation coefficient calculated using Random-effects meta-analysis using Fisher’s Z-transformed correlations (metafor)\n
+  	- ci.lb, ci.ub: 95% CI for the pooled correlation coefficient.\n
+  	- p.value, combined p value from the meta analysis\n
+  	- p.adjust: BH adjusted p.value\n
+  	- During correlation calculation, only keep compounds that appear in more than one compound+dose+time combination to increase confidence.\n
+  	- For each compound, only keep genes that have signature scores >2 or <-2\n\n
+
+ SheetSL: Differential alternative splicing analysis result table for all three subcellular fractions. Only the most significant pair of equivalence classes are shown for each gene.\n
+ 	- #distinct peps1 / #distinct peps2. Number of distinct peptides detected for each peptide sets, see below.\n
+ 	- #ions1 / #ions2. Total number of ion measurements (peptide spectra) used for quantification in each peptide set.\n
+ 	- FDR. False Discovery Rate — adjusted p-value controlling for multiple testing (lower = more significant).\n
+ 	- mean_fcfc. MS-EmpiReS groups isoforms into equivalence classes that each is defined as the set of all isoforms a peptide maps to. Often, multiple equivalence classes can be tested against each other in a pairwise fashion for a gene in a particular dataset. The fold-changes were calculated between conditions are determined for every peptide, then the FC of FCs for each possible peptide pair between two compared equivalence classes were calculated, which will be named as FCFC, the FCFCs of all possible peptide pairs were then averaged to get mean_fcfc. \n
+ 	- log2fc_t1, log2fc_t2. Log₂ fold changes between conditions for each equivalence class.\n
+ 	- ratio_excl1/excl2. Ratio of expression of peptides mapped exclusively to equivalence class1 vs class2.\n
+ 	- diff_log2fcfc. log2(mean_fcfc).\n
+ 	- splicpeps. Indicates if alternative splice variant–specific peptides were detected at a cutoff of fdr < 0.05 (TRUE or FALSE).\n
+ 	- IDsplice. Whether splice variants were identified (TRUE/FALSE or ID list).
+ 	- p-value. Raw (unadjusted) p-value for the differential test. FDR (above) is the multiple-testing-corrected version.\n
+ 	- set1 / set2 / set3. peptide set names. excl1: peptides mapped exclusively to eqclass1, union: peptides mapped to both eqclasses, excl2: peptides mapped to eqclass2.\n
+ 	- t1 / t2 / t3. Isoforms for each peptide set.\n
+ 	- peps1 / peps2 / peps3. Peptides for each peptide set.\n\n
+
+  SheetSM: Differential alternative splicing analysis result table for all three subcellular fractions. Only the most significant pair of equivalence classes are shown for each gene.\n\n
+
+  SheetST: Gene set enrichment analysis results showing the enriched celltypes among the top differentially expressed proteinds.\n
+  	- Here we use the C8 cell type signature gene sets from MsigDB.\n
+  	- pval. Nominal p-value from the GSEA test.\n
+  	- padj. BH Adjusted p-value\n
+  	- log2err. The estimated standard error (in log2 scale) for the normalized enrichment score (NES).\n
+  	- ES. Enrichment Score — a running-sum statistic measuring overrepresentation of the gene set at the top or bottom of the ranked list.\n
+  	- NES. Normalized Enrichment Score — ES normalized by gene set size and permutation background.\n
+  	- size. Number of genes from the tested gene set that were present in your ranked list.\n
+  	- leadingEdge. The subset of genes that contributed most to the enrichment signal — i.e., those driving the ES peak.\n\n
+
+
+  SheetSV: Result of limma differential analysis of translocaiton indices between AUD and UC. The translocaiton indices (log2 transformed) for each sample are also shown. \n\n
+
+  SheetSSS: GSEA result with SynGO on synaptosomal differential result. \n\n
+
+  SheetSX: GSEA result with SynGO on translocation index differential result.\n\n
+
+  SheetSY: GSEA result with KEGG on translocaiton index differential result. \n\n
+  
+"))
+
+writeLines(out, "../doc/Figures_tables/README_SupplementaryTable.txt")
+
+out
+
+```
+
+# Deliverables
+
+# Directory
+
+## Practical info
+
+## Software
+
+# Data responsibility
+
+The responsibility for data archiving lies with the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+# Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).
