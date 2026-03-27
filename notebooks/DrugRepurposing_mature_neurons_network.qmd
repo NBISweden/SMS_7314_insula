@@ -1,0 +1,619 @@
+---
+title: "Subcellular proteomic analysis of the insula in alcohol dependence"
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  bookdown::html_document2:
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: false
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+params:
+  dataset: 1
+---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+
+```
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
+
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+
+**Aim for this particular notebook**: Identify other perturbagens in LINCS that produce a very similar transcriptional signature in the same cell context. If those “neighbor” compounds have known targets/MoA, we can often infer likely pathways/targets for the unannotated compound (BRD-M29370314), we can do this through gene coexpression network analysis.
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(BioNERO)
+library(SummarizedExperiment)
+library(igraph)
+# library(metafor)
+```
+
+
+# Prepare the data
+
+
+```{r}
+# # Check the data
+# GSE70138 = cmapR::parse_gctx("../results/rerun/Additional/DrugTarget_L1000/data/GSE70138_Broad_LINCS_Level5_COMPZ_n118050x12328_2017-03-06.gctx")
+# 
+# grep("_NEU_", colnames(GSE70138@mat), value=T) %>% sapply(., function(i) {stringr::str_split(i, ":")[[1]][1]}) %>% unique()
+# grep("_NPC_", colnames(GSE70138@mat), value=T) %>% sapply(., function(i) {stringr::str_split(i, ":")[[1]][1]}) %>% unique()
+# grep("_MNEU.E_", colnames(GSE70138@mat), value=T) %>% sapply(., function(i) {stringr::str_split(i, ":")[[1]][1]}) %>% unique()
+# grep("_NPC.CAS9_", colnames(GSE70138@mat), value=T) %>% sapply(., function(i) {stringr::str_split(i, ":")[[1]][1]}) %>% unique()
+# grep("_NPC.TAK_", colnames(GSE70138@mat), value=T) %>% sapply(., function(i) {stringr::str_split(i, ":")[[1]][1]}) %>% unique()
+# 
+# # [1] "LJP007_NEU_24H" "LJP008_NEU_24H" "LJP009_NEU_24H"
+# # [1] "LJP007_NPC_24H"  "LJP008_NPC_24H"  "LJP009_NPC_24H"  "LPROT003_NPC_6H"
+# # [1] "LJP007_MNEU.E_24H"
+# # [1] "LJP007_NPC.CAS9_24H" "LJP008_NPC.CAS9_24H" "LJP009_NPC.CAS9_24H"
+# # [1] "LJP007_NPC.TAK_24H"  "LJP008_NPC.TAK_24H"  "LJP009_NPC.TAK_24H"  "LPROT001_NPC.TAK_6H" "LPROT002_NPC.TAK_6H"
+```
+
+
+```{python}
+# # Check the data
+# sig1 = pd.read_table(data_dir+"GSE92742_Broad_LINCS_sig_info.txt", sep="\t", low_memory=False)
+# sig2 = pd.read_table(data_dir+"GSE70138_Broad_LINCS_sig_info.txt", sep="\t", low_memory=False)
+# sig1_fil = sig1.loc[(sig1["cell_id"]=="NEU") | (sig1["cell_id"]=="NPC") | (sig1["cell_id"]=="MNEU.E") | (sig1["cell_id"]=="NPC.CAS9") | (sig1["cell_id"]=="NPC.TAK")]
+# sig2_fil = sig2.loc[(sig2["cell_id"]=="NEU") | (sig2["cell_id"]=="NPC") | (sig2["cell_id"]=="MNEU.E") | (sig2["cell_id"]=="NPC.CAS9") | (sig2["cell_id"]=="NPC.TAK")]
+# 
+# sorted(set(sig1_fil.iloc[:, 7].to_list()).union(set(sig2_fil.iloc[:, 5].to_list())))
+# # ['-666', '0.04 um', '0.05 um', '0.1 %', '0.1 um', '0.12 um', '0.25 um', '0.37 um', '0.4 um', '0.5 um', '0.75 um', '1 µM', '1.0 um', '1.11 um', '1.5 um', '1.5 µL', '1.7 um', '10 µM', '10.0 um', '100 nM', '12.0 um', '2.0 um', '2.5 um', '25.0 um', '3 µM', '3.0 um', '3.33 um', '3.5 um', '4.0 um', '4.5 um', '40.0 um', '5.0 um', '5.5 um', '500 nM', '6.0 um', '8.0 um']
+# ['0.04 um' '0.05 um' '0.1 um' '0.12 um' '0.25 um' '0.37 um' '0.4 um' '0.5 um' '0.75 um' '1.0 um' '1.11 um' '1.5 um' '1.7 um' '10.0 um' '100.0 um' '12.0 um' '2.0 um' '25.0 um' '3.0 um' '3.33 um' '3.5 um' '4.0 um' '4.5 um' '40.0 um' '5.0 um' '5.5 um' '500.0 nm' '6.0 um' '8.0 um']
+# ['0.04 µM' '0.05 µM' '0.1 µM' '0.12 µM' '0.25 µM' '0.37 µM' '0.4 µM' '0.5 µM' '0.75 µM' '1 µM' '1.11 µM' '1.5 µM' '1.7 µM' '10 µM' '100 µM' '12 µM' '2 µM' '25 µM' '3 µM' '3.33 µM' '3.5 µM' '4 µM' '4.5 µM' '40 µM' '5 µM' '5.5 µM' '500 nM' '6 µM' '8 µM']
+# sorted(set(sig1_fil.iloc[:, 10].to_list()).union(set(sig2_fil.iloc[:, 6].to_list())))
+# # ['24 h', '6 h', '96 h']
+# 
+# 
+# ctrl1 = sig1_fil.loc[(sig1_fil["pert_type"]=='ctl_vector.cns') | (sig1_fil["pert_type"]=="ctl_vehicle.cns") | (sig1_fil["pert_type"]=="ctl_untrt.cns") | (sig1_fil["pert_type"]=="ctl_vehicle") | (sig1_fil["pert_type"]=="ctl_untrt")  | (sig1_fil["pert_type"]=="ctl_vector")]
+# case1 = sig1_fil.loc[(sig1_fil["pert_type"]=='trt_sh.cgs') | (sig1_fil["pert_type"]=='trt_sh.css') | (sig1_fil["pert_type"]=='trt_cp') | (sig1_fil["pert_type"]=='trt_sh')]
+# set(ctrl1.iloc[:, 7].to_list())
+# # {'-666', '1.5 µL', '0.1 %'}  # It's good that we don't use those doses when filtering the data, only used those for treatment samples.
+# set(case1.iloc[:, 7].to_list())
+# # {'3 µM', '1 µM', '100 nM', '1.5 µL', '500 nM', '10 µM'}
+# set(ctrl1.iloc[:, 10].to_list())
+# set(case1.iloc[:, 10].to_list())
+# set(case1.iloc[:, 3].to_list())
+# # {'trt_sh.cgs', 'trt_sh', 'trt_sh.css', 'trt_cp'}
+# 
+# ctrl2 = sig2_fil.loc[(sig2_fil["pert_type"]=='ctl_vector.cns') | (sig2_fil["pert_type"]=="ctl_vehicle.cns") | (sig2_fil["pert_type"]=="ctl_untrt.cns") | (sig2_fil["pert_type"]=="ctl_vehicle") | (sig2_fil["pert_type"]=="ctl_untrt")  | (sig2_fil["pert_type"]=="ctl_vector")]
+# case2 = sig2_fil.loc[(sig2_fil["pert_type"]=='trt_sh.cgs') | (sig2_fil["pert_type"]=='trt_sh.css') | (sig2_fil["pert_type"]=='trt_cp') | (sig2_fil["pert_type"]=='trt_sh')]
+# set(ctrl2.iloc[:, 5].to_list())
+# # {'-666'} # It's good that we don't use those doses when filtering the data, only used those for treatment samples.
+# set(case2.iloc[:, 5].to_list())
+# # {'2.5 um', '5.5 um', '0.37 um', '0.25 um', '0.5 um', '10.0 um', '0.4 um', '1.7 um', '12.0 um', '8.0 um', '1.5 um', '3.5 um', '4.0 um', '6.0 um', '3.33 um', '25.0 um', '0.12 um', '0.04 um', '0.75 um', '1.11 um', '4.5 um', '0.05 um', '1.0 um', '5.0 um', '2.0 um', '3.0 um', '0.1 um', '40.0 um'}
+# set(ctrl2.iloc[:, 6].to_list())
+# set(case2.iloc[:, 6].to_list())
+# set(case2.iloc[:, 3].to_list())
+# # {'trt_cp'}
+```
+
+```{bash}
+# Extract all the perturbation signature data for cell lines NEU, MNEU.E, NPC, NPC.CAS9, NPC.TAK from L1000
+# bash ../results/rerun/Additional/DrugTarget_L1000/automation.sh
+```
+
+```{r}
+# sig1 = read.table("../results/rerun/Additional/DrugTarget_L1000/data/GSE92742_Broad_LINCS_sig_info.txt", 
+#                   header = T, quote = "", sep="\t") %>% as.data.frame()
+# sig2 = read.table("../results/rerun/Additional/DrugTarget_L1000/data/GSE70138_Broad_LINCS_sig_info.txt", 
+#                   header = T, quote = "", sep="\t") %>% as.data.frame()
+# filter(sig1, pert_type=="trt_sh")
+
+# Prepare for gene name conversion
+genes = 
+  read.table("../results/rerun/Additional/DrugTarget_L1000/data/GSE92742_Broad_LINCS_gene_info.txt", 
+  header = T, quote = "", sep="\t") %>% as.data.frame()
+mappings = setNames(genes$pr_gene_symbol, genes$pr_gene_id)
+
+# The perturbation signatures: when there are replicates for one combination (e.g. MNEU.E_24 h_0.05 µM, cell line: MNEU.E, pert_time: 24 h, pert_dose: 0.05 uM), the expression signature from all replicates are combined (median)
+Names_C = 
+  list.files("../results/rerun/Additional/DrugTarget_L1000/Consensus_Signatures/", pattern=".txt") %>% 
+  gsub("_Consensus.txt", "", .)
+Consensus = 
+  list.files("../results/rerun/Additional/DrugTarget_L1000/Consensus_Signatures/", pattern=".txt", 
+  full.names=T) %>% setNames(Names_C)
+length(Consensus)
+length(Names_C)
+
+# The perturbation signatures: when there are no replicates
+Names_N = 
+  list.files("../results/rerun/Additional/DrugTarget_L1000/Compounds_With_No_Replicates/", pattern=".txt") %>% 
+  gsub("_No_Replicates.txt", "", .)
+NoReplicates = 
+  list.files("../results/rerun/Additional/DrugTarget_L1000/Compounds_With_No_Replicates/", pattern=".txt", 
+  full.names=T) %>% setNames(Names_N)
+
+length(NoReplicates)
+length(Names_N)
+setdiff(Names_N, Names_C)
+Names_all = c(Names_C, Names_N) %>% unique()
+# Only use the mature neuron cell lines: MNEU.E and NEU ##############€€€€€€€€€€€€€€€&&&&&&&&&&&&&&&&***************&&&&&&&&&&&&&&#########
+Names_all = grep("NEU_24|NEU_6", Names_all, value=T)
+length(Names_all)
+
+# Combine all the consensus signatures and non-replicated signatures together into one single table for each dose+time+cellline combination:
+mat_all = lapply(Names_all, function(Name) {
+  if (Name %in% Names_C) {
+    fileC = Consensus[Name]
+    matC  = 
+      read.table(fileC, header = T, quote = "", sep="\t") %>%
+      as.data.frame()
+  } else matC=NA
+  if (Name %in% Names_N) {
+    fileN = NoReplicates[Name]
+    matN  = 
+      read.table(fileN, header = T, quote = "", sep="\t") %>%
+      as.data.frame()
+  } else matN=NA
+  if (!is.data.frame(matC)&&is.data.frame(matN)) mat=matN
+  if (!is.data.frame(matN)&&is.data.frame(matC)) mat=matC
+  if (is.data.frame(matN)&&is.data.frame(matC)) {
+    mat = rbind(matC, matN)
+    }
+  if (nrow(mat)!=0) {
+    colnames(mat) = gsub("X", "", colnames(mat))
+    mat = mat %>% tibble::column_to_rownames(var="Compound_id")
+    colnames(mat) = mappings[colnames(mat)] %>% as.character()
+    mat
+  }
+}) %>% setNames(Names_all)
+
+# Remove empty items
+mat_all = mat_all %>% Filter(Negate(is.null), .)
+# Check the number of pertubagens
+lapply(mat_all, function(mat) dim(mat))
+
+# How many distinct chemical compounds do we have:
+lapply(mat_all, function(m) {
+  rownames(m)
+}) %>% unlist() %>% as.character() %>% unique() %>% length()
+# 2585
+
+
+OUTDIR = "../results/rerun/Additional/DrugTarget_L1000/onlyMatureNeuron/BRD-M29370314_FunctionPrediction/"
+dir.create(OUTDIR, showWarnings = F, recursive = T)
+saveRDS(mat_all, paste0(OUTDIR, "/mat_all.RDS"))
+# mat_all = readRDS(paste0(OUTDIR, "/mat_all.RDS"))
+
+```
+
+
+
+# Read in drugbank data
+```{r}
+# # xmlstarlet sel \
+# #   -N db="http://www.drugbank.ca" \
+# #   -t \
+# #   -m "//db:drug" \
+# #   -v "normalize-space(db:name)" -o $'\t' \
+# #   -v "normalize-space(db:atc-codes/db:atc-code/db:level[1])" \
+# #   -n \
+# #   drugbank.xml > rslt2.tsv
+# # Replace 'yourfile.tsv' with your actual file path
+# drug = read.delim(paste0(OUTDIR, "/rslt2.tsv"), 
+#     header = FALSE, sep = "\t", fill = FALSE, stringsAsFactors = FALSE)
+# drug = drug[drug[,2] != "",]
+# length(drug[drug[,2] != "",] %>% pull(V1) %>% unique())
+# # [1] 3550
+# length(lapply(mat_all, function(m) {
+#   rownames(m)
+# }) %>% unlist() %>% as.character() %>% unique())
+# # [1] 2585
+# # lapply(mat_all, function(m) {
+# #   dim(m)
+# # })
+# A = lapply(mat_all, function(m) {
+#     rownames(m)
+#   }) %>% unlist() %>% as.character() %>% unique()
+# # A_clean = A[!grepl("^[A-Z]+-[0-9-]+$", A)]
+# A_clean = A[!grepl("BRD-", A)]
+# B = drug[drug[,2] != "",] %>% 
+#   pull(V1) %>% unique() %>% gsub(" ", "-", .) %>%
+#   tolower()
+# intersect(A_clean, B)
+# # 265
+# drug %>% filter(tolower(V1) %in% intersect(A_clean, B)) %>% pull(V2) %>% unique()
+# # 167
+# # # View the data
+# # drug[drug[,2] != "",] %>% dim()
+# # # [1] 3550    2
+# # drug[drug[,2] != "",] %>% pull(V2) %>% unique() %>% length()
+# # # [1] 662
+# # drug[drug[,2] != "",] %>% pull(V2) %>% table()
+
+# # Check the Available Mechanism of Actions
+# drug2 = read.delim(paste0(OUTDIR, "/rslt3.tsv"), 
+#     header = FALSE, sep = "\t", fill = FALSE, stringsAsFactors = FALSE)
+# head(drug2)
+# length(drug2[drug2[,2] != "",] %>% pull(V1) %>% unique())
+# # [1] 4063
+# B2 = drug2[drug2[,2] != "",] %>% 
+#   pull(V1) %>% unique() %>% gsub(" ", "-", .) %>%
+#   tolower()
+# intersect(A_clean, B2)
+# # 273, only a small proportion as well.
+
+```
+
+
+
+# Build SummarizedExperiment objects
+
+```{r}
+lapply(mat_all, function(mat) {
+  dim(mat)
+})
+lapply(mat_all, function(mat) {
+  colnames(mat)
+}) %>% unlist() %>% unique() %>% length()
+mat_all2 = lapply(names(mat_all), function(m) {
+  mat = mat_all[[m]] %>%
+        mutate(dataset = gsub(" ","",m))
+  mat = mat %>% tibble::rownames_to_column(var="Perturbagen")
+  mat[,c("dataset", "Perturbagen", colnames(mat_all[[1]]))]
+}) %>% setNames(names(mat_all))
+head(mat_all2[[1]][,1:5])
+names(mat_all2)
+NEU_24 = mat_all2[grep("NEU_24", names(mat_all2), value=T)] %>% Reduce(rbind, .)
+NEU_6 = mat_all2[grep("NEU_6", names(mat_all2), value=T)] %>% Reduce(rbind, .)
+head(NEU_24[,1:5])
+head(NEU_6[,1:5])
+sum(colSums(is.na(NEU_24[, colnames(mat_all[[1]])]))>0)
+sum(colSums(is.na(NEU_6[, colnames(mat_all[[1]])]))>0)
+# grep("NEU_24", names(mat_all2), value=T)
+# [1] "LINCS_all_NEU_24 h_0.12 µM" "LINCS_all_NEU_24 h_0.37 µM"
+# [3] "LINCS_all_NEU_24 h_1 µM"    "LINCS_all_NEU_24 h_1.11 µM"
+# [5] "LINCS_all_NEU_24 h_10 µM"   "LINCS_all_NEU_24 h_3 µM"   
+# [7] "LINCS_all_NEU_24 h_3.33 µM"
+# grep("NEU_6", names(mat_all2), value=T)
+# [1] "LINCS_all_NEU_6 h_1 µM"  "LINCS_all_NEU_6 h_10 µM"
+# > dim(NEU_24)
+# [1] 3142  980
+# > dim(NEU_6)
+# [1] 599 980
+
+# Create a SummarizedExperiment object for NEU_24h
+se_NEU24 = SummarizedExperiment(
+  assays = list(
+    counts = NEU_24[, c("Perturbagen", colnames(mat_all[[1]]))] %>%
+              mutate(Perturbagen = make.unique(Perturbagen)) %>%
+              tibble::column_to_rownames(var="Perturbagen")),
+  rowData = NEU_24[, c("dataset", "Perturbagen")],
+  colData = data.frame(Gene=colnames(mat_all[[1]]))
+)
+assay(se_NEU24)[1:3, 1:3]
+
+# Create a SummarizedExperiment object for NEU_6h
+se_NEU6 = SummarizedExperiment(
+  assays = list(
+    counts = NEU_6[, c("Perturbagen", colnames(mat_all[[1]]))]%>%
+              mutate(Perturbagen = make.unique(Perturbagen)) %>%
+              tibble::column_to_rownames(var="Perturbagen")),
+  rowData = NEU_6[, c("dataset", "Perturbagen")],
+  colData = data.frame(Gene=colnames(mat_all[[1]]))
+)
+assay(se_NEU6)[1:3, 1:3]
+
+```
+```{r}
+# list.files("../results/rerun/Additional/DrugTarget_L1000/data/")
+# GSE70138_Broad_LINCS_inst_info = read.delim(
+#   "../results/rerun/Additional/DrugTarget_L1000/data/GSE70138_Broad_LINCS_inst_info.txt",
+#   header=TRUE, sep="\t", fill=FALSE, stringsAsFactors=FALSE)
+# head(GSE70138_Broad_LINCS_inst_info)
+# GSE70138_Broad_LINCS_inst_info %>% 
+#   select(det_plate, pert_dose, pert_dose_unit, pert_time, pert_time_unit, cell_id) %>% 
+#   filter(cell_id=="NEU"&pert_time=="24"&pert_time_unit=="h") %>% 
+#   unique() %>% pull(det_plate) %>% unique()
+# GSE92742_Broad_LINCS_inst_info = read.delim(
+#   "../results/rerun/Additional/DrugTarget_L1000/data/GSE92742_Broad_LINCS_inst_info.txt",
+#   header=TRUE, sep="\t", fill=FALSE, stringsAsFactors=FALSE)
+# head(GSE92742_Broad_LINCS_inst_info)
+# GSE92742_Broad_LINCS_inst_info%>% 
+#   select(rna_plate, pert_dose, pert_dose_unit, pert_time, pert_time_unit, cell_id) %>% 
+#   filter(cell_id=="NEU"&pert_time=="24"&pert_time_unit=="h") %>% 
+#   unique() %>% pull(rna_plate) %>% unique()
+```
+
+# Gene coexpression network
+
+## Find optiomal beta power to which correlation coefficents will be raised
+### NEU_24 h
+```{r}
+# Find optimal beta power to which correlation coefficients will be raised 
+sft24 = SFT_fit(
+  se_NEU24,
+  net_type = "signed hybrid",
+  cor_method = "pearson"
+)
+sft24$power
+sft24$plot
+```
+
+### NEU_6 h
+```{r}
+# Find optimal beta power to which correlation coefficients will be raised 
+sft6 = SFT_fit(
+  se_NEU6,
+  net_type = "signed hybrid",
+  cor_method = "pearson"
+)
+sft6$power
+sft6$plot
+```
+* Here, we infer a signed hybrid network (negative correlations are represented as 0)
+* Use Pearson's correlation coefficient
+
+## Infer GCNs
+```{r}
+# Infer a GCN
+gcn24 = exp2gcn(
+  se_NEU24,
+  net_type = "signed hybrid",
+  SFTpower = sft24$power,
+  cor_method = "pearson"
+)
+gcn6 = exp2gcn(
+  se_NEU6,
+  net_type = "signed hybrid",
+  SFTpower = sft6$power,
+  cor_method = "pearson"
+)
+names(gcn6)
+```
+
+  - adjacency_matrix: a square matrix mij representing the strength of the connection between perturbagen i and perturbagen j.
+  - correlation_matrix: very similar to adjacency_matrix, but values inside the matrix represent correlation coefficients.
+  - genes_and_modules(): a 2-column data frame of genes and their corresponding modules
+  - MEs: a data frame with module eigengenes (i.e., a summary of each module's expression profiles)
+  - KIN: a data frame with each gene's degree (i.e. sum of conneciton weights), both with genes inside the same module and in different modules. 
+  - params: list of parameters used for network inference
+  - dendro_plot_objects: list of objects used to plot a dendrogrm of genes and modules with plot_dendro_and_colors()''
+
+## Which module does belong to
+### NEU_24h
+```{r}
+head(gcn24$genes_and_modules)
+gcn24$genes_and_modules[gcn24$genes_and_modules$Genes=="BRD-M29370314",]
+#             Genes     Modules
+# 2345 BRD-M29370314 greenyellow
+```
+### NEU_6h
+```{r}
+head(gcn6$genes_and_modules)
+gcn6$genes_and_modules[gcn6$genes_and_modules$Genes=="BRD-M29370314",]
+#             Genes Modules
+# 326 BRD-M29370314  yellow
+```
+
+## Visualize the inferred coexpression modules
+### NEU_24 h
+```{r}
+pdf(paste0(OUTDIR, "/ngenes_per_module_NEU24h.pdf"), h=4,w=5)
+plot_ngenes_per_module(gcn24)
+dev.off()
+```
+### NEU_6 h
+```{r}
+pdf(paste0(OUTDIR, "/ngenes_per_module_NEU6h.pdf"), h=2.5,w=5)
+plot_ngenes_per_module(gcn6)
+dev.off()
+```
+
+## Visualize pairwise correlations between module eigengenes
+### NEU_24 h 
+```{r}
+pdf(paste0(OUTDIR, "/pairwise_correlation_modules_NEU24h.pdf"), h=4,w=4.6)
+plot_eigengene_network(gcn24)
+dev.off()
+```
+
+### NEU_6 h 
+```{r}
+pdf(paste0(OUTDIR, "/pairwise_correlation_modules_NEU6h.pdf"), h=3,w=3.6)
+plot_eigengene_network(gcn6)
+dev.off()
+```
+
+## Network visualization (of BRD-M29370314 module)
+```{r}
+getdirectneighbors = function(feature="BRD-K97591839") {
+  quantile(edge24_filtered$Weight, probs=0.1)
+  edge24_filtered2 = filter(edge24, Gene1==feature|Gene2==feature) %>%
+                    filter(Weight>0.2) %>% arrange(., -Weight)
+  edge24_filtered2 = edge24_filtered2[1:min(50,nrow(edge24_filtered2)),]
+  # Swap columns where BRD-M29370314 is in Gene2 but not Gene1
+  swap_idx = which(edge24_filtered2$Gene2 == feature & edge24_filtered2$Gene1 != feature)
+  # Swap Gene1 and Gene2 for these rows
+  edge24_filtered2[swap_idx, c("Gene1", "Gene2")] = edge24_filtered2[swap_idx, c("Gene2", "Gene1")]
+  write.csv(edge24_filtered2%>%left_join(
+    rowData(se_NEU24) %>% as.data.frame() %>% mutate(Perturbagen = make.unique(Perturbagen)) %>%
+    mutate(Gene2=Perturbagen) %>% select(-Perturbagen)), 
+    paste0(OUTDIR, "TopDirectNeighbors_NEU24h_",feature,".csv"), row.names = FALSE)
+  # Convert edge list to igraph object
+  g24_2 = graph_from_data_frame(edge24_filtered2, directed = FALSE)
+  # Plot with vertex labels
+  pdf(paste0(OUTDIR, "/DirectNeighbors_",feature,"_NEU24h.pdf"), h=9,w=10)
+  plot(
+    g24_2,
+    layout = layout_with_fr,
+    vertex.label = V(g24_2)$name,
+    vertex.label.cex = 0.7,
+    vertex.size = 5,
+    vertex.color = "orange",
+    vertex.frame.color = "white",
+    edge.width = (E(g24_2)$Weight-0.2)*7
+  )
+  dev.off()
+
+  edge6_filtered2 = filter(edge6, Gene1==feature|Gene2==feature) %>%
+                    filter(Weight>0.2) %>% arrange(., -Weight) %>% na.omit()
+  edge6_filtered2 = edge6_filtered2[1:min(50,nrow(edge6_filtered2)),]
+  # Swap columns where BRD-M29370314 is in Gene2 but not Gene1
+  swap_idx2 = which(edge6_filtered2$Gene2 == feature & edge6_filtered2$Gene1 != feature)
+  # Swap Gene1 and Gene2 for these rows
+  edge6_filtered2[swap_idx2, c("Gene1", "Gene2")] = edge6_filtered2[swap_idx2, c("Gene2", "Gene1")]
+  write.csv(edge6_filtered2%>%left_join(
+    rowData(se_NEU6) %>% as.data.frame()%>% mutate(Perturbagen = make.unique(Perturbagen)) %>%
+    mutate(Gene2=Perturbagen) %>% select(-Perturbagen)), 
+    paste0(OUTDIR, "TopDirectNeighbors_NEU6h_",feature,".csv"), row.names = FALSE)
+  # Convert edge list to igraph object
+  g6_2 = graph_from_data_frame(edge6_filtered2, directed = FALSE)
+  # Plot with vertex labels
+  pdf(paste0(OUTDIR, "/DirectNeighbors_",feature,"_NEU6h.pdf"), h=9,w=10)
+  plot(
+    g6_2,
+    layout = layout_with_fr,
+    vertex.label = V(g6_2)$name,
+    vertex.label.cex = 0.7,
+    vertex.size = 5,
+    vertex.color = "orange",
+    vertex.frame.color = "white",
+    edge.width = (E(g6_2)$Weight-0.2)*5
+  )
+  dev.off()
+  out = intersect(c(edge24_filtered2$Gene1,edge24_filtered2$Gene2) %>% unique(),
+              c(edge6_filtered2$Gene1,edge6_filtered2$Gene2) %>% unique())
+  return(paste0(out, collapse="/"))
+}
+```
+
+```{r}
+sink(paste0(OUTDIR, "SharedDirectNeighbors_NEU24_NEU6.txt"))
+cat(
+paste0("
+Shared direct top50 neighbors for BRD-M29370314 between NEU_24 experiments and NEU_6 experiments: ",
+getdirectneighbors(feature="BRD-M29370314"), " \n
+
+Shared direct top50 neighbors for BRD-K97591839 between NEU_24 experiments and NEU_6 experiments: ",
+getdirectneighbors(feature="BRD-K97591839"), " \n
+
+Shared direct top50 neighbors for BRD-K27332342 between NEU_24 experiments and NEU_6 experiments: ",
+getdirectneighbors(feature="BRD-K27332342"), " \n"))
+
+sink()
+```
+
+```{r}
+# Save entire workspace (all objects) to an .RData file
+save.image(file = paste0(OUTDIR,"workspace.RData"))
+
+# grep("NEU_24", names(mat_all2), value=T)
+# [1] "LINCS_all_NEU_24 h_0.12 µM" "LINCS_all_NEU_24 h_0.37 µM"
+# [3] "LINCS_all_NEU_24 h_1 µM"    "LINCS_all_NEU_24 h_1.11 µM"
+# [5] "LINCS_all_NEU_24 h_10 µM"   "LINCS_all_NEU_24 h_3 µM"   
+# [7] "LINCS_all_NEU_24 h_3.33 µM"
+# grep("NEU_6", names(mat_all2), value=T)
+# [1] "LINCS_all_NEU_6 h_1 µM"  "LINCS_all_NEU_6 h_10 µM"
+# > dim(NEU_24)
+# [1] 3142  980
+# > dim(NEU_6)
+# [1] 599 980
+
+out = capture.output(cat("
+Here, we used the perturbagen profile gene z-scores to build Gene Coexpression Network (GCN) using the R package BioNERO 1.14.0, 
+
+  This was done separately for NEU_24h and NEU_6h.
+
+  for NEU_24h, we used the profile gene z-scores (in total 980 genes) of 3142 perturbagens from L1000 experiments with doses 0.12 uM, 0.37 uM, 1 uM, 1.11 uM, 10 uM, 3 uM, 3.33 uM. 
+  for NEU_6h, we used the profile gene z-scores (in total 980 genes) of 599 perturbagens from L1000 experiments with doses 1 uM and 10 uM. 
+  
+  Steps:
+  - With BioNERO, we first assigned the perturbagens to different modules by clustering perturbagen based on their gene expression profile pearson correlation patterns using hierarchical clustering and dynamic tree cutting methods, 
+  - we then extracted the edges of the modules (´greenyellow´ for NEU24, ´yellow´ for NEU6) that BRD-M29370314 belongs to, 
+  - filtered the edges to only keep those that involves BRD-M29370314 and their direct neighbors 
+    -- The weights (Pearson correlation coefficients.) of the kept edges also need to be > 0.2, 
+  - we next ranked the edges based on their weights, and picked the top 50 edges for graph/networks visualization (DirectNeighbors_*.pdf, in the network, the edge width relfects edge weight).
+"))
+
+writeLines(out, paste0(OUTDIR, "README.txt"))
+
+```
+
+# Session Info
+
+```{r}
+output = capture.output({
+  sessionInfo()
+})
+writeLines(output, paste0(OUTDIR, "/sessionInfo.txt"))
+
+output
+```
+
+# Deliverables
+
+# Directory
+
+## Practical info
+
+## Software
+
+# Data responsibility
+
+The responsibility for data archiving lies wscale = TRUEith the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+# Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).

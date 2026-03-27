@@ -523,9 +523,9 @@ tosave = lapply(seq_along(metas$results), function(i){
   m
 }) %>% Reduce(rbind, .)
 xlsx::write.xlsx(as.data.frame(tosave), 
-             "../results/rerun/Additional/DrugTarget_L1000/perturbagen_candidates.xlsx",
-             col.names=TRUE, row.names=FALSE,
-             append=F)
+  "../results/rerun/Additional/DrugTarget_L1000/perturbagen_candidates.xlsx",
+  col.names=TRUE, row.names=FALSE,
+  append=F)
 
 # How many show negative correlation:
 filter(tosave, Pooled.cor<0) %>% nrow()
@@ -569,9 +569,9 @@ tosave = lapply(seq_along(metas_sig$results), function(i){
   m
 }) %>% Reduce(rbind, .)
 xlsx::write.xlsx(as.data.frame(tosave), 
-             "../results/rerun/Additional/DrugTarget_L1000/perturbagen_candidates_onlySignificantDEGs.xlsx",
-             col.names=TRUE, row.names=FALSE,
-             append=F)
+  "../results/rerun/Additional/DrugTarget_L1000/perturbagen_candidates_onlySignificantDEGs.xlsx",
+  col.names=TRUE, row.names=FALSE,
+  append=F)
 
 # How many show negative correlation:
 filter(tosave, Pooled.cor<0) %>% nrow()
