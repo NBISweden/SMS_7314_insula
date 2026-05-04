@@ -1,0 +1,398 @@
+---
+title: Subcellular proteomic analysis of the insula in alcohol dependence
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+toc: true
+number-sections: true
+format: 
+  html:
+    #embed-resources: true #This works from command line not from Rstudio
+    code-fold: false
+    code-tools: true
+    code-link: true
+    theme: pandoc
+    df-print: paged
+    html-math-method: katex #use katex for math text
+  pdf:
+    code-line-numbers: true
+    geometry: 
+      - top=30mm
+      - left=30mm
+  docx: default
+language:
+  code-summary: Click to show code
+editor_options:
+  chunk_output_type: inline
+editor: visual
+---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+```
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
+
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+
+**In the notebook, we will calculate the correlation between KEGG pathways and Alcohol use disorder duration**
+
+**Pellet = Insoluble = Nuclear**
+
+# Import and process the data
+
+```{r}
+suppressPackageStartupMessages({
+  library(readxl)
+  library(purrr)
+  # library(EDASeq)
+  library(limma)
+  # library(emmeans)
+  library(edgeR)
+  # library(future.apply)
+  library(dplyr)
+  library(tidyr)
+  library(plyr)
+  # library(xlsx)
+  library(ggplot2)
+  library(ComplexHeatmap)
+  library(GGally)
+  library(org.Hs.eg.db)
+  library(AnnotationDbi) 
+  library(pathview)
+  # library(UniProt.ws)
+  library(GGally)
+  library(clusterProfiler)
+  library(ggrepel)
+  # library(enrichR)
+  library(GSVA)
+})
+```
+
+```{r}
+jName = "7314"
+inputP = "../data/Creative Proteomics_DATA/"
+designP = paste0("../data/design_", jName) #
+dir.create(designP, showWarnings=F, recursive=T) #
+outDir = "../results/rerun/"
+OUTDIR_QC = paste0(outDir, "/QC/")
+dir.create(outDir, recursive = T, showWarnings = F)
+```
+
+```{r}
+design.table.list = lapply(
+  c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"), function(i) {
+  readr::read_table(paste0(designP, "/design_", i, "_wRef.tsv"))
+}) %>% setNames(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"))
+
+print("Add in the Duration of Alcohol Use Disorder (yr) information ...")
+extraMeta = 
+  openxlsx::read.xlsx("../data/Pitt SubjectTable_032626v3.xlsx", startRow = 2)
+extraMeta = extraMeta[, 15:31] %>% 
+  mutate(sampleID=`Subject.ID*`) %>%
+  mutate(sampleID=paste0(sub("\\^$", "", sampleID))) %>%
+  mutate(Duration.of.Alcohol.Use.Disorder = `Duration.of.Alcohol.Use.Disorder.(yr)`) %>%
+  mutate(Duration.of.Alcohol.Use.Disorder = as.numeric(Duration.of.Alcohol.Use.Disorder)) %>%
+  dplyr::select(sampleID, Duration.of.Alcohol.Use.Disorder)
+extraMeta = extraMeta[1:12, ]
+design.table.list = lapply(names(design.table.list), function(cp) {
+  design.table = design.table.list[[cp]]
+  design.table$sampleID = as.character(design.table$sampleID)
+  design.table %>% 
+    left_join(extraMeta, by=c("sampleID"="sampleID")) %>%
+    filter(Condition=="case")
+}) %>% setNames(names(design.table.list))
+# Remove samples with missing Duration.of.Alcohol.Use.Disorder
+design.table.list = lapply(design.table.list, function(c) {
+    c = c %>% filter(!is.na(Duration.of.Alcohol.Use.Disorder))
+    return(c)
+})
+
+outDir = "../results/rerun/"
+OUTDIR_QC = paste0(outDir, "/QC/")
+dataTable.list_SL_IRS_TMM =
+  readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+
+```
+
+# Calculate KEGG GSVA scores
+
+```{r}
+# detach("package:GSVA", unload = TRUE)
+# mamba install --force-reinstall -p /Users/ekol-yal/miniconda3/envs/TTN bioconda::bioconductor-gsva
+
+#' Calculate gene set enrichment scores using GSVA, and run PCA on those scores.
+#'
+#' @param normalizedCount A numeric matrix or data frame of normalized data with
+#'   features as row names and samples as column names.
+#' @param CellTypeGenesets A list of gene sets and their members
+#' @param OUTDIR_CC Character scalar. Directory where outputs (tables)
+#'   will be written (GSVAscores.csv, CelltypePCs.csv).
+#' @importFrom dplyr %>%
+#' @return A list with components:
+#' \item{sdev}{The standard deviations of the principal components}
+#' \item{rotation}{Gene loadings on each PC}
+#' \item{x}{Sample scores in the new principal component space}
+#' \item{scale}{The scaling factors applied to each variable(if scale=TRUE)}
+#' @export
+keggGSVA = function(normalizedData, OUTDIR, desgin.table, dbdir = OUTDIR_ADD) {
+    # BiocManager::install("GSVA")
+    print("Import gene set ...")
+    # print("GSEA with MsigDB_C2 subcategory CP:KEGG_LEGACY...")
+    # kegg_sets = msigdbr::msigdbr(species = "Homo sapiens",
+    #             category = "C2", subcategory = "CP:KEGG_LEGACY") # "CP:KEGG")
+    kegg_sets = read.csv(paste0(dbdir, "/KEGG_combined.csv"), sep="\t")
+    kegg_term2gene =
+      kegg_sets[, c("pathway_name", "gene_symbols")]
+    keggdb = split( kegg_term2gene$gene_symbols,  kegg_term2gene$pathway_name)
+    keggdb = lapply(keggdb, function(gs){
+        stringr::str_split(gs, ";")[[1]]
+    })
+    set.seed(123)
+    print("Calcualte GSVA per sample ...")
+    params = gsvaParam(
+      exprData = as.matrix(normalizedData),
+      geneSets = keggdb,
+      kcdf = "Gaussian",
+      minSize = 3,                         # changed from min.sz
+      maxSize = Inf                        # default, but good to know
+    )
+    res = gsva(params)
+    gsva_scores = res %>% as.data.frame() %>%
+            tibble::rownames_to_column(var="Pathway")
+    openxlsx::write.xlsx(
+            list(gsva_scores), paste0(OUTDIR, "/KEGG_GSVA_scores.xlsx"))
+    return(gsva_scores)
+}
+
+OUTDIR_ADD = paste0(outDir, "/AlcoholUseDisorderDuration/")
+# unlist(lapply(ref_list, length))
+KEGGgsvas = lapply(names(dataTable.list_SL_IRS_TMM), function(cp) {
+    # print(cp)
+    normalizedData = dataTable.list_SL_IRS_TMM[[cp]]
+    normalizedData = normalizedData %>% dplyr::select(-Protein_IDs, -Gene_names) 
+    NewOrder = normalizedData[, 2:ncol(normalizedData)] %>% 
+      rowSums(., na.rm=TRUE) %>% 
+      order(., decreasing=TRUE)
+    normalizedData = normalizedData[NewOrder,]
+    normalizedData = normalizedData[!duplicated(normalizedData$Genes), ]
+    normalizedData = normalizedData[!is.na(normalizedData$Genes), ]
+    rownames(normalizedData) = NULL
+    normalizedData = normalizedData %>%
+      tibble::column_to_rownames(var="Genes")
+    dir.create(paste0(OUTDIR_ADD, "/", cp, "/"), 
+               recursive=TRUE, showWarnings = FALSE)
+    design.table = design.table.list[[cp]]
+    keggGSVA(normalizedData, 
+                OUTDIR = paste0(OUTDIR_ADD, "/", cp, "/"),
+                desgin.table = design.table)
+}) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+
+# makePCAplot(celltypePCs, design.table.list, 
+#                 DEGs=DEGtops, onlyDEGs =TRUE)
+
+```
+
+# Spearma correlation between KEGG GSVA scores and Duration of Alcohol Use Disorder
+
+```{r}
+cor_list = lapply(names(KEGGgsvas), function(c) {
+  k = KEGGgsvas[[c]] %>% 
+    tibble::column_to_rownames(var="Pathway")
+  d = design.table.list[[c]]
+  sharedSamples = intersect(colnames(k), d$sample)
+  d = d[, c("sample","Duration.of.Alcohol.Use.Disorder", "Age")] %>% 
+    tibble::column_to_rownames(var="sample") %>% t() %>%
+    as.data.frame() %>% .[, sharedSamples]
+  k = k[, sharedSamples]
+  combined = rbind(k, d)
+  # combined[1:nrow(combined)-1, ] %>% max()
+  combined[nrow(combined),] = scale(combined[nrow(combined),] %>% as.numeric())
+  cors = lapply(1:(nrow(combined)-2), function(i) {
+    r = cor.test(as.numeric(combined[i,]), 
+               as.numeric(combined["Duration.of.Alcohol.Use.Disorder",]), 
+               method="spearman")
+    data.frame(Pathway=rownames(combined)[i], 
+               Rho=r$estimate, 
+               Pvalue=r$p.value) 
+  }) %>% Reduce(rbind, .) %>% arrange(Pvalue)
+  cors$Padj = p.adjust(cors$Pvalue, method="fdr")
+  
+  partial_cor = lapply(1:(nrow(combined)-2), function(i) {
+    r = ppcor::pcor.test(as.numeric(combined[i,]), 
+                as.numeric(combined["Duration.of.Alcohol.Use.Disorder",]), 
+                as.numeric(combined["Age",]), 
+                method="spearman")
+    data.frame(Pathway=rownames(combined)[i], 
+               Correlation=r$estimate, 
+               Pvalue=r$p.value,
+               Sample_size=r$n) 
+  }) %>% Reduce(rbind, .) %>% arrange(Pvalue)
+  partial_cor$Padj = p.adjust(cors$Pvalue, method="fdr")
+  
+  
+  return(list(Spearman_cor = cors, Partial_spearman_cor = partial_cor))
+}) %>% setNames(names(KEGGgsvas))
+
+names(cor_list)
+openxlsx::write.xlsx(lapply(cor_list, function(c) {
+  c$Spearman_cor
+}), paste0(OUTDIR_ADD, "Spearman_correlation_AlcoholUseDisorderDuration_KEGG_GSVA_scores.xlsx"))
+
+openxlsx::write.xlsx(lapply(cor_list, function(c) {
+  c$Partial_spearman_cor
+}), paste0(OUTDIR_ADD, "Partial_spearman_correlation_AlcoholUseDisorderDuration_KEGG_GSVA_scores.xlsx"))
+
+```
+
+# Visualization
+
+```{r}
+pdf(paste0(OUTDIR_ADD,"Spearman_correlation_AlcoholUseDisorderDuration_KEGG_GSVA_scores.pdf"),
+    h=3, w=8)
+    lapply(names(cor_list), function(c) {
+      temp = cor_list[[c]]$Spearman_cor
+      temp$FRACTION = c
+      temp
+    }) %>% Reduce(rbind, .) %>% 
+      filter(Pathway %in% 
+          c("Spliceosome", "Valine, leucine and isoleucine degradation",
+            "Propanoate_metabolism",
+            "cGMP-PKG signaling pathway", "Ribosome")) %>%
+          mutate(Pathway = gsub("KEGG_", "", Pathway)) %>%
+          ggplot(mapping=aes_string(y="Pathway", x="Rho")) +
+              geom_point(shape=21, aes_string(size="Pvalue", fill="FRACTION"), alpha=0.7) +
+              #facet_wrap(~Condition) + 
+              ggtitle(paste0("Spearman.cor")) +
+              xlab("Rho") +
+              ylab("") + labs(size="Pvalue") +
+              scale_fill_manual(values=c("#6D6D6D", "#B32B16", "orange")) +
+              theme_bw(base_size = 15) + 
+              scale_size(trans="reverse") +
+              guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
+              theme(strip.text.x = element_text(size = 14))
+dev.off()
+
+pdf(paste0(OUTDIR_ADD,"Partial_spearman_correlation_AlcoholUseDisorderDuration_KEGG_GSVA_scores.pdf"),
+    h=3, w=8)
+    lapply(names(cor_list), function(c) {
+      temp = cor_list[[c]]$Partial_spearman_cor
+      temp$FRACTION = c
+      temp
+    }) %>% Reduce(rbind, .) %>% 
+      filter(Pathway %in% 
+            c("Spliceosome", "Valine, leucine and isoleucine degradation",
+            "Propanoate_metabolism",
+            "cGMP-PKG signaling pathway", "Ribosome")) %>%
+          mutate(Pathway = gsub("KEGG_", "", Pathway)) %>%
+          ggplot(mapping=aes_string(y="Pathway", x="Correlation")) +
+              geom_point(shape=21, aes_string(size="Pvalue", fill="FRACTION"), alpha=0.7) +
+              #facet_wrap(~Condition) + 
+              ggtitle(paste0("Partial.spearman.cor")) +
+              xlab("Rho") +
+              ylab("") + labs(size="Pvalue") +
+              scale_fill_manual(values=c("#6D6D6D", "#B32B16", "orange")) +
+              theme_bw(base_size = 15) + 
+              scale_size(trans="reverse") +
+              guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
+              theme(strip.text.x = element_text(size = 14))
+dev.off()
+
+```
+
+```{r}
+out = capture.output(sessionInfo())
+writeLines(out, paste0(OUTDIR_ADD, "/seesionInfo.txt"))
+sessionInfo()
+```
+
+# Methods
+
+```{r}
+out = capture.output(cat("
+1. KEGG pathway enrichment analysis
+
+For each cellular compartment, we first performed Gene Set Variation Analysis (GSVA) analysis on the normalzied data to KEGG pathway enrichment at the individual sample level, using the R package, GSVA_2.0.0. GSVA transfoms the gene expression matrix into a pathway-level enrichment score matrix. Briefly, gene expression values were first normalized and ranked within each sample. A non-parameteric kernel estimation of the cumulative density function was applied to calculate a rank-based enrichment score for each predefined gene set. This resulted in an enrichment score (ES) for every gene set in every sample, where a positive score indicates relative upregulation and a negative score indicates downregulation.
+
+
+2.Spearman correlation of KEGG pathways and Duration of Alcohol Use Disorder
+
+To check the robustness of the identified pathways, and make sure they don't reflect the duration of alcohol use disorder, we calculated either the spearman correlation between the enrichment scores for each KEGG pathway and the duration of alochol use disorder in the AUD samples, or the partial spearman correlation between the enrichment scores for each KEGG pathway and the duration of alochol use disorder in AUD samples and simultaneously controlling for Age.                        
+"))
+
+
+writeLines(out, paste0(OUTDIR_ADD, "/README.txt"))
+
+```
+
+### 1. KEGG pathway enrichment analysis
+
+For each cellular compartment, we first performed Gene Set Variation Analysis (GSVA) analysis on the normalzied data to KEGG pathway enrichment at the individual sample level, using the R package, GSVA_2.0.0. GSVA transfoms the gene expression matrix into a pathway-level enrichment score matrix. Briefly, gene expression values were first normalized and ranked within each sample. A non-parameteric kernel estimation of the cumulative density function was applied to calculate a rank-based enrichment score for each predefined gene set. This resulted in an enrichment score (ES) for every gene set in every sample, where a positive score indicates relative upregulation and a negative score indicates downregulation.
+
+
+### 2.Spearman correlation of KEGG pathways and Duration of Alcohol Use Disorder
+
+To check the robustness of the identified pathways, and make sure they don't reflect the duration of alcohol use disorder, we calculated either the spearman correlation between the enrichment scores for each KEGG pathway and the duration of alochol use disorder in the AUD samples, or the partial spearman correlation between the enrichment scores for each KEGG pathway and the duration of alochol use disorder in AUD samples and simultaneously controlling for Age.                        
+
+# Deliverables
+
+# Directory
+
+## Practical info
+
+## Software
+
+# Data responsibility
+
+The responsibility for data archiving lies with the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+# Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).

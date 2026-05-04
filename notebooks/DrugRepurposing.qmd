@@ -1,0 +1,322 @@
+---
+title: "Subcellular proteomic analysis of the insula in alcohol dependence"
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  bookdown::html_document2:
+    code_folding: hide
+    toc: true
+    toc_float:
+      collapsed: false
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+params:
+  dataset: 1
+---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+
+```
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
+
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+
+**Aim for this particular notebook**: Look for ovelapping genes between our Limma- pldDA-identified differential genes and GWAS studies; look for perturbagens that have reverse expression patterns comparing to the AUD
+
+```{r}
+library(readxl)
+library(dplyr)
+library(metafor)
+```
+
+# Compare GWAS with differential genes
+
+```{r}
+# Import GWAS genes from different studies
+library(readxl)
+# Zhou et al. 2023: https://www.nature.com/articles/s41591-023-02653-5 # ST1, only European data are used
+gwas1_euro = read_excel(
+    paste0("../doc/Paper/GWAS/41591_2023_2653_MOESM3_ESM.xlsx"), 
+    sheet=3, col_names=TRUE, na="", skip=0)
+gwas1_euro
+gwas1_cross_ancestry = read_excel(
+    paste0("../doc/Paper/GWAS/41591_2023_2653_MOESM3_ESM.xlsx"), 
+    sheet=4, col_names=TRUE, na="", skip=0)
+gwas1_cross_ancestry
+# Saunders et al. 2022: https://doi.org/10.1038/s41586-022-05477-4 # Supplementary Table 1 is used
+gwas2 = read_excel(
+    paste0("../doc/Paper/GWAS/41586_2022_5477_MOESM3_ESM.xlsx"), 
+    sheet=3, col_names=TRUE, na="", skip=0)
+gwas2_euro = gwas2 %>% filter(Phenotype=="DrnkWk") %>% filter(Ancestry=="EUR")
+gwas2_trans_ancestry = gwas2 %>% filter(Phenotype=="DrnkWk") %>% filter(Ancestry=="Trans-ancestry")
+gwas2_euro
+gwas2_trans_ancestry
+# Icick et al. 2023: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10775504/
+gwas3_euro = read_excel(
+    paste0("../doc/Paper/GWAS/AUD_GWAS_list_Nat Hum Beh 2025.xlsx"), 
+    sheet=2, col_names=TRUE, na="", skip=0)
+gwas3_euro
+gwas3_multi_ancestry = read_excel(
+    paste0("../doc/Paper/GWAS/AUD_GWAS_list_Nat Hum Beh 2025.xlsx"), 
+    sheet=3, col_names=TRUE, na="", skip=0)
+gwas3_multi_ancestry
+
+
+
+# Import Limma differential genes
+compartments = c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL")
+limma = lapply(compartments, function(i) {
+  dat = read_excel(
+    paste0("../results/rerun/DifferentialAnalysis_ControlCelltypeComposition/Differential_Table_",i,".xlsx"), 
+                  sheet=1, col_names=TRUE, na="", skip=0)
+  dat = dat[, 1:8]
+  dat$Fraction = i
+  dat$Protein = dat$Protein_IDs
+  dat
+}) %>% setNames(compartments) 
+limma2 = limma %>% Reduce(rbind, .) %>% filter(adj.P.Val<0.2)
+limma2 = limma2[!duplicated(limma2$Protein_IDs), ]
+
+
+
+# Import DIABLO selected genes:
+NAMES = c("CYTOSOLIC", "INSOLUBLE", "SYNAPTOSOMAL")
+loadings = lapply(1:3, function(i) {
+  dat = read_excel(
+    paste0(
+    "../results/rerun/Integration/DIABLO/selectedProteins/SelectedFeatures_weights.xlsx"), 
+    sheet=i, col_names=TRUE, na="", skip=0)
+  dat$Fraction = NAMES[i]
+  dat
+}) %>% Reduce(rbind, .)
+
+```
+
+```{r}
+print("Overlapping between Limma differential genes and GWAS study Zhou2023: ")
+print("European:")
+A1 = intersect(gwas1_euro$nearestGene, limma2$Genes)
+A1
+# [1] "ACSS3"
+print("Cross ancestry: ")
+A2 = intersect(gwas1_cross_ancestry$nearestGene, limma2$Genes)
+A2
+# "ACSS3"
+
+print("Overlapping between Limma differential genes and GWAS study Saunders2022: ")
+print("European:")
+B1 = intersect(gwas2_euro$Gene, limma2$Genes)
+B1
+# [1] "RTN4"     "ACSS3"    "SERPINA1" 
+print("Trans_ancestry: ")
+B2 = intersect(gwas2_trans_ancestry$Gene, limma2$Genes)
+B2
+# [1] "RTN4"     "ACSS3"    "DCLK1"    "SERPINA1" "ATP1A3"  
+
+print("Overlapping between Limma differential genes and GWAS study Icick2025: ")
+print("European:")
+E1 = intersect(gwas3_euro$`Credibly mapped gene`, limma2$Genes)
+E1
+ 
+print("Multi_ancestry: ")
+E2 = intersect(gwas3_multi_ancestry$`Credibly mapped gene`, limma2$Genes)
+E2
+
+
+print("Overlapping between DIABLO selected genes and GWAS study Zhou2023: ")
+print("European:")
+C1 = intersect(gwas1_euro$nearestGene, loadings$Genes)
+C1
+# "ACSS3"
+print("Cross_ancestry")
+C2 = intersect(gwas1_cross_ancestry$nearestGene, loadings$Genes)
+C2
+# "ACSS3"
+
+print("Overlapping between DIABLO selected genes and GWAS study Saunders2022: ")
+print("European:")
+D1 = intersect(gwas2_euro$Gene, loadings$Genes)
+D1
+# "ACSS3"
+print("Trans_ancestry")
+D2 = intersect(gwas2_trans_ancestry$Gene, loadings$Genes)
+D2
+# "ACSS3"
+
+
+print("Overlapping between DIABLO selected genes and GWAS study Icick2025: ")
+print("European:")
+F1 = intersect(gwas3_euro$`Credibly mapped gene`, loadings$Genes)
+F1
+print("Multi_ancestry: ")
+F2 = intersect(gwas3_multi_ancestry$`Credibly mapped gene`, loadings$Genes)
+F2
+
+c(A1, A2, B1, B2, C1, C2, D1, D2, E1, E2, F1, F2) %>% unique() %>% length()
+
+table = data.frame(list(Limma=c(paste(A1,collapse = "/"), paste(A2,collapse="/"), 
+                                paste(B1,collapse = "/"), paste(B2,collapse="/"),
+                                paste(E1,collapse = "/"), paste(E2,collapse="/")), 
+                plsDA=c(paste(C1,collapse="/"), paste(C2,collapse="/"),
+                        paste(D1,collapse="/"), paste(D2,collapse="/"),
+                        paste(F1,collapse="/"), paste(F2,collapse="/"))))
+rownames(table) = c(paste0("Zhou et al. 2023_", c("European", "Multi-ancestry")),
+                    paste0("Saunders et a. 2022_", c("European", "Multi-ancestry")), 
+                    paste0("Icick et al. 2025_", c("European", "Multi-ancestry")))
+table = table %>% tibble::rownames_to_column(var="Study")
+
+dir.create("../results/rerun/Additional/", recursive = T, showWarnings = F)
+write.table(table, "../results/rerun/Additional/GWASoverlapping.csv", sep="\t", 
+            col.names=T, row.names=F, quote=F)
+```
+
+
+# Drug repurposing analysis
+
+![L1000:GSE92742](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE92742)
+![L1000:GSE70138](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE70138)
+
+docker run -it --rm --platform linux/amd64 -v $(pwd):/work/ yuanli202004/autoencoder:latest
+python
+
+```{python}
+# outdir = "app/results/rerun/DrugRepurposing/"
+# exec(open(outdir + "/src/VAEmodelTraining.py").read())
+# exec(open(outdir + "/src/findReversalDrugs.py").read())
+
+```
+
+
+
+# Methods
+
+To investigate whether the proteomic alterations identified in the insula of AUD align with transcriptional responses to pharmacological perturbations, we integrated the results from our limma analysis with gene expression signatures from the Library of Integrated Network-based Cellular Signatures (LINCS) L1000 database [27]. The LINCS L1000 database systematically records in vitro gene expression changes in response to diverse chemical treatments across more than 80 human cell lines. For this study, we focused on the level5 differential gene expression signatures (GSE92742) corresponding to 2,460 distinct chemical compounds tested in the differentiated neurons (NEU). With this L1000 dataset, we built a variational autoencoder model (VAE) using the python package torch v.2.1.0 (ref). Only the 978 landmark features were used in the test, drugs MG-132 and bortezomib were excluded from the training as well. Outliers were removed before model training using the IsolationForest() function from the sklearn v1.7.2 package. VAE is designed to learn a compressed, generative, less noisy representation of gene expression data. It maps high-dimensional input into a latent space of 64 dimensions. The architectural of the VAE model includes an encoder, the latent space, the reparameterization trick and a decoder. 
+
+  - The Encoder is a multi-layer perception (MLP) consisting of two 1000-node hidden layers. It uses Tanh activation functions to introduce non-linearity while keeping activations bounded. 
+  - The latent space. The encoder output is mapped to two vectors, mean and log-variance. This defines a Gaussian distribution in the latent space.
+  - Reparameterization trick. This allows for backpropagation through a stochastic process, the model uses the reparametrization trick, sampling noise from a standard normal distribution
+  - Decoder is a symmetric MLP that reconstructs the original 978-gene expression profile from the latent vector z. Note that the final outoput is scaled by a factor of 10 that matches the original dynamic range of the normalized gene data. 
+
+The limma t-statistic from differential analysis were used for drug prediction, but beforehand the data were scaled to a range of [-10, 10] to align with the dynamic range of the L1000 training data. Missing values are then initialized to 0, serving as neutral starting point for the model, we then perform an itrative reconstruction loop (20 iterations) to impute the missing values. Each loop contains stochastic latent mapping, generative reconstruction, and selective update. Here the VAE acts as a non-linear regularizer-it fills in missing genes by finding the most biologically plausible values that fie the overal profile.
+
+  - Stochastic latent mapping: the current data is passed through the encoder to generate a latent representation z.
+  - Generative reconstruction: the decoder projects z back into the original 978-gene space, producing a "complete" version of the sample based on the patterns the model learned during training.
+  - Selective update: Only the originally missing values are updated with the decoder's output; the observed values remain fixed. This ensures the model fills in the gaps without overriding known biological data.
+
+As the interations progress, the imputed values stabilize as they are repeatedly forced to be consistent with the learned manifold of gene-gene correlations. Once complete, the final hallucinated values provide a seamless input, which is then passed through the encoder one last time to extract the AUD latent embeddings (u) for downstream disease analysis. 
+
+To find drugs that can reverse AUD proteomic dysregulation, we performed a similarity search in the latent space using cosine similarity. This process identifies drugs whose transcriptomics impact "cancel out" the disease's impace the most. 
+
+  - Before comparison, both the drug embeddings and the drug embedding in the latent space were normalized to unit length (1), which ensures that comparison focuses solely on the direction of the vectors (the pattern of gene expression changes) rather than the magnitude (the strength or dosage of the effect). 
+  - We then calculated the cosine similarity scores between the normalized disease vector and the drug vectors. Only drugs with a cosine similarity score of <-0.7 is considered to be significant reversal drug. 
+  - If the predicted reversal drug is undefined, we also carried out similar analysis to look for drugs whose transcriptomic impact aligns most closely with its state representation, only a cosine similarity of >0.7 is considered to be significant.
+
+Here, were treat the VAE latent space as a map where drugs and diseases with similar biological mechanisms are located near other. 
+
+
+
+
+```{r}
+outdir = "../results/rerun/DrugRepurposing/"
+out = capture.output(cat("
+To investigate whether the proteomic alterations identified in the insula of AUD align with transcriptional responses to pharmacological perturbations, we integrated the results from our limma analysis with gene expression signatures from the Library of Integrated Network-based Cellular Signatures (LINCS) L1000 database [27]. The LINCS L1000 database systematically records in vitro gene expression changes in response to diverse chemical treatments across more than 80 human cell lines. For this study, we focused on the level5 differential gene expression signatures (GSE92742) corresponding to 2,460 distinct chemical compounds tested in the differentiated neurons (NEU). With this L1000 dataset, we built a variational autoencoder model (VAE) using the python package torch v.2.1.0 (ref). Only the 978 landmark features were used, drugs MG-132 and bortezomib were excluded as well. Outliers were removed before model training using the IsolationForest() function from the sklearn v1.7.2 package. VAE is designed to learn a compressed, generative, less noisy representation of gene expression data. It maps high-dimensional input into a latent space of 64 dimensions. The architecture of the VAE model includes an encoder, the latent space, the reparameterization trick and a decoder. 
+
+  - The Encoder is a multi-layer perception (MLP) consisting of two 1000-node hidden layers. It uses Tanh activation functions to introduce non-linearity while keeping activations bounded. 
+  - The latent space. The encoder output is mapped to two vectors, mean and log-variance. This defines a Gaussian distribution in the latent space.
+  - Reparameterization trick. This allows for backpropagation through a stochastic process, the model uses the reparametrization trick, sampling noise from a standard normal distribution
+  - Decoder is a symmetric MLP that reconstructs the original 978-gene expression profile from the latent vector z. Note that the final outoput is scaled by a factor of 10 that matches the original dynamic range of the normalized gene data. 
+
+The limma t-statistic from differential analysis were used for drug prediction, but beforehand the data were scaled to a range of [-10, 10] to align with the dynamic range of the L1000 training data. Missing values are then initialized to 0, serving as neutral starting point for the model, we then perform an itrative reconstruction loop (20 iterations) to impute the missing values. Each loop contains stochastic latent mapping, generative reconstruction, and selective update. Here the VAE acts as a non-linear regularizer-it fills in missing genes by finding the most biologically plausible values that fit the overal profile.
+
+  - Stochastic latent mapping: the current data is passed through the encoder to generate a latent representation z.
+  - Generative reconstruction: the decoder projects z back into the original 978-gene space, producing a 'complete' version of the samples based on the patterns the model learned during training.
+  - Selective update: Only the originally missing values are updated with the decoder's output; the observed values remain fixed. This ensures the model fills in the gaps without overriding known biological data.
+
+As the interations progress, the imputed values stabilize as they are repeatedly forced to be consistent with the learned manifold of gene-gene correlations. Once complete, the final hallucinated values provide a seamless input, which is then passed through the encoder one last time to extract the AUD latent embeddings (u) for downstream disease analysis. 
+
+To find drugs that can reverse AUD proteomic dysregulation, we performed a similarity search in the latent space using cosine similarity. This process identifies drugs whose transcriptomics impact 'cancel out' the disease's impace the most. 
+
+  - Before comparison, both the drug embeddings and the drug embedding in the latent space were normalized to unit length (1), which ensures that comparison focuses solely on the direction of the vectors (the pattern of gene expression changes) rather than the magnitude (the strength or dosage of the effect). 
+  - We then calculated the cosine similarity scores between the normalized disease vector and the drug vectors. Only drugs with a cosine similarity score of <-0.7 are considered to be significant reversal drugs. 
+  - If the predicted reversal drug is undefined, we also carried out similar analysis to look for drugs whose transcriptomic impact aligns most closely with state representation of the undefined drug, only a cosine similarity of >0.7 is considered to be significant.
+
+Here, we treat the VAE latent space as a map where drugs and diseases with similar biological mechanisms are located near other. 
+
+"))
+
+writeLines(out, paste0(outdir, "/README.txt"))
+```
+
+
+
+
+# Deliverables
+
+# Directory
+
+## Practical info
+
+## Software
+
+# Data responsibility
+
+The responsibility for data archiving lies wscale = TRUEith the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+# Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).

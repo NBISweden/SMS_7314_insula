@@ -1,0 +1,1359 @@
+---
+title: Subcellular proteomic analysis of the insula in alcohol dependence
+subtitle: "NBIS support {{< 7314 >}}"
+author: Yuan Li
+toc: true
+number-sections: true
+format: 
+  html:
+    #embed-resources: true #This works from command line not from Rstudio
+    code-fold: false
+    code-tools: true
+    code-link: true
+    theme: pandoc
+    df-print: paged
+    html-math-method: katex #use katex for math text
+  pdf:
+    code-line-numbers: true
+    geometry: 
+      - top=30mm
+      - left=30mm
+  docx: default
+language:
+  code-summary: Click to show code
+editor_options:
+  chunk_output_type: inline
+editor: visual
+---
+
+```{r Setup, echo = FALSE}
+knitr::opts_chunk$set(fig.width  = 7,
+                      results    = "hold",
+                      message    = FALSE,
+                      cache.lazy = FALSE,
+                      warning    = FALSE)
+
+```
+
+```{r,echo=FALSE,include=FALSE}
+# project variables
+rep_nbis_id <- "7314"
+rep_report_version <- "1.0"
+rep_request <- "Philippe Melas"
+rep_request_email <- "philippe.melas@ki.se"
+rep_pi <- "Philippe Melas"
+rep_pi_email <- "philippe.melas@ki.se"
+rep_org <- "KI"
+rep_nbis <- "Yuan Li"
+rep_nbis_email <- "yuan.li@nbis.se"
+```
+
+::: boxy
+**NBIS ID:** `r rep_nbis_id`\
+**Report Version:** `r rep_report_version`\
+**Request by:** `r paste0(rep_request," (",rep_request_email,")")`\
+**Principal Investigator:** `r paste0(rep_pi," (",rep_pi_email,")")`\
+**Organisation:** `r rep_org`\
+**NBIS Staff:** `r paste0(rep_nbis," (",rep_nbis_email,")")` **conda env:** TTN
+:::
+
+<br>
+
+# Support Request
+
+[7314](https://projects.nbis.se/issues/7314#change-40330) In brief, the data that we have, derive from the following experimental design: Brain samples from alcohol dependent patients (N=12 cases) and matched controls (N=12 controls) were first submitted to subcellular fractionations, which yielded three fractions (i.e., synaptosomes, cytosol, insoluble fraction). All three fractions (total N=72 samples) were subjected to TMT-based quantitative proteomics. Data were provided by a commercial company (Creative Proteomics) in .xlsx format. The company also performed and provided results from basic bioinformatic comparisons (inc. differential expression, pathway analysis, etc.), which revealed some statistical significances between cases and controls on the nominal p-level. We would now like to re-analyze the data and prepare material, e.g., Figures/Tables and Methods, for a publication.
+
+# Data
+
+The data has already been filtered by the company (e.g. removed proteins with CONTA, REV... as prefix of their names, some **potential** contaminating proteins etc. were kept for they may also represent real proteins)
+
+Because there is a big batch effect (between G1 and G2, see the PCA plot in ../results/old/totalAbundanceNormalized/PELLET/differentialAnalysis/Comparisons_loess0.1/Norm-stats-report-Comparisons_loess0.1.pdf), and there are almost no significant protein. So I decided to renormalize the raw intensity, and see how it will affect the results.
+
+**Comparing to report.qmd, this report added an extra confounding factor (cell type compositions) to be controlled during the differential analysis**
+
+**Pellet = Insoluble = Nuclear**
+
+```{r}
+makePCAplot = 
+  function(dataTable.list_SL_IRS_TMM, design.table.list, 
+           DEGs=NULL, onlyDEGs =FALSE, OUTDIR, onlyDisease=FALSE){
+    rlst_list = invisible(lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+      if (onlyDEGs) {
+        data_matrix = dataTable.list_SL_IRS_TMM[[i]] %>% 
+            filter(Protein_IDs %in% DEGtops[[i]]) 
+      } else {
+        data_matrix = dataTable.list_SL_IRS_TMM[[i]]
+      }
+      if (nrow(data_matrix)>0) {
+          design = design.table.list[[i]]
+          design$Age_group = ifelse(design$Age<=45, "0-45", 
+                                    ifelse(design$Age<=55, "46-55", "56-65"))
+          # Add TMT label order:
+          rownames(design) = design$sample
+          design = design[c("127N_G1", "127C_G1", "128N_G1", "128C_G1", "129N_G1", "129C_G1", "130N_G1", "130C_G1", "131N_G1", "131C_G1", "132N_G1", "132C_G1", "128N_G2", "128C_G2", "129N_G2", "129C_G2", "130N_G2", "130C_G2", "131N_G2", "131C_G2", "132N_G2", "132C_G2", "133N_G2", "133C_G2"), ]
+          design$TMTlabelOrder = rep(1:12, 2)
+          design$TMTlabel = gsub("_G1", "", design$sample)
+          design$TMTlabel = gsub("_G2", "", design$TMTlabel)
+          
+          if (onlyDisease) {
+            design = design %>% filter(Condition == "case")
+          }
+          
+          sample_names = 
+            grep("_G", colnames(data_matrix), value=T) %>% 
+            intersect(., design$sample)
+          
+          rownames(data_matrix) = data_matrix$Protein_IDs
+          c_pca = prcomp(t(na.omit(data_matrix[,sample_names])), 
+                         scale=TRUE, center = TRUE)
+          frac_var = function(x) x^2/sum(x^2)
+          
+          var_explained = c_pca$sdev %>% 
+            tibble::as_tibble() %>% 
+            frac_var() %>% 
+            round(digits = 2)
+          c_pca_all = c_pca$x %>%
+            as.data.frame() %>%
+            tibble::rownames_to_column(var = "sample") %>%
+            dplyr::full_join(design, by = "sample") 
+          #library(GGally)
+          P1=suppressMessages(ggpairs(c_pca_all,
+              columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
+                        "Condition", "Sex", "Age", "RIN", "PMI",
+                      "Total_intensity", "MissingValues", "TMTlabelOrder",
+                      "TMTlabel"),
+              mapping=aes(color=Batch), upper=list(continuous='blank'),
+              main="Colored by Batch"))
+          P2=suppressMessages(ggpairs(c_pca_all,
+              columns=c('PC1', 'PC2', 'PC3', "PC4", "Batch", "Fraction", 
+                        "Condition", "Sex", "Age", "RIN", "PMI",
+                      "Total_intensity", "MissingValues", "TMTlabelOrder",
+                      "TMTlabel"),
+              mapping=aes(color=Condition), upper=list(continuous='blank'),
+              main="Colored by Condition"))
+          
+          FILE = ifelse(onlyDEGs, paste0(OUTDIR, "/", i, "_PCA_plot_onDEGs.pdf"),
+                        paste0(OUTDIR, "/", i, "_PCA_plot.pdf"))
+          pdf(FILE, h=7.5, w=10)
+          print(P1)
+          print(P2)
+          
+          vars = list(c("Batch", "Condition"),
+                      c("Condition", "RIN"),
+                      c("Condition", "Sex"),
+                      c("Condition", "PMI"),
+                      c("Condition", "Age"),
+                      c("Condition", "Total_intensity"),
+                      c("Condition", "MissingValues"),
+                      c("Condition", "pH"),
+                      c("Condition", "TissueStorageTime_months"))
+          
+          V = c("Batch", "Condition", "TMTlabelOrder")
+          p1_1 = ggplot(aes(PC1, PC2), data = c_pca_all) +
+              geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+              labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+              y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+          p1_2 = ggplot(aes(PC2, PC4), data = c_pca_all) +
+              geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+              labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+              y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = ""))
+          p1_3 = ggplot(aes(PC2, PC3), data = c_pca_all) +
+              geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+              labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+              y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+          p1_4 = ggplot(aes(PC1, PC3), data = c_pca_all) +
+              geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+              labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+              y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+          print(cowplot::plot_grid(p1_1, p1_2, p1_3, p1_4, ncol=2, labels=i))
+          
+          V = c("Batch", "Condition", "TMTlabel")
+          p2_1 = ggplot(aes(PC1, PC2), data = c_pca_all) +
+              geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+              labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+              y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+          p2_2 = ggplot(aes(PC2, PC4), data = c_pca_all) +
+              geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+              labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+              y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = ""))
+          p2_3 = ggplot(aes(PC2, PC3), data = c_pca_all) +
+              geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+              labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+              y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+          p2_4 = ggplot(aes(PC1, PC3), data = c_pca_all) +
+              geom_point(aes_string(shape = V[2], col=V[1], size=V[3])) +
+              labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+              y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+          print(cowplot::plot_grid(p2_1, p2_2, p2_3, p2_4, ncol=2, labels=i))
+          
+          lapply(vars, function(V) {
+            p3 <- ggplot(aes(PC1, PC2), data = c_pca_all) +
+              geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+              labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+                   y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+            p4 <- ggplot(aes(PC1, PC3), data = c_pca_all) +
+              geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+              labs(x = paste("PC1 (", var_explained[1,"value"]*100, "% explained var.)", sep = ""),
+                   y = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""))
+            p5 <- ggplot(aes(PC3, PC2), data = c_pca_all) +
+              geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+              labs(x = paste("PC3 (", var_explained[3,"value"]*100, "% explained var.)", sep = ""),
+                   y = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""))
+            p52 <- ggplot(aes(PC2, PC4), data = c_pca_all) +
+              geom_point(size = 3, aes_string(shape = V[1], col=V[2])) +
+              labs(x = paste("PC2 (", var_explained[2,"value"]*100, "% explained var.)", sep = ""),
+                   y = paste("PC4 (", var_explained[4,"value"]*100, "% explained var.)", sep = ""))
+            print(cowplot::plot_grid(p3, p4, p5, p52, ncol=2, labels=i))    
+          })
+          invisible(dev.off())
+      } else {c_pca = NULL}
+      
+      return(c_pca)
+  }) %>% setNames(names(dataTable.list_SL_IRS_TMM)))    
+  return(rlst_list)
+}
+```
+
+# Import and process the data
+
+```{r}
+suppressPackageStartupMessages({
+  library(readxl)
+  library(purrr)
+  library(EDASeq)
+  library(limma)
+  library(emmeans)   
+  library(edgeR)
+  library(future.apply)
+  library(dplyr)
+  library(tidyr)
+  library(plyr)
+  library(xlsx)
+  library(ggplot2)
+  library(ComplexHeatmap)
+  library(GGally)
+  library(org.Hs.eg.db)
+  library(AnnotationDbi) 
+  library(pathview)
+  library(UniProt.ws)
+  library(GGally)
+  library(clusterProfiler)
+  library(ggrepel)
+  library(enrichR)
+  library(GSVA)
+})
+```
+
+```{r}
+jName = "7314"
+inputP = "../data/Creative Proteomics_DATA/"
+designP = paste0("../data/design_", jName) #
+dir.create(designP, showWarnings=F, recursive=T) #
+outDir = "../results/rerun/"
+OUTDIR_QC = paste0(outDir, "/QC/")
+dir.create(outDir, recursive = T, showWarnings = F)
+```
+
+```{r}
+design.table.list = lapply(
+  c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"), function(i) {
+  readr::read_table(paste0(designP, "/design_", i, ".tsv"))
+}) %>% setNames(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"))
+
+outDir = "../results/rerun/"
+OUTDIR_QC = paste0(outDir, "/QC/")
+dataTable.list_SL_IRS_TMM =
+  readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+OUTDIR_CC = paste0(outDir, "/Celltype/CelltypeComposition/")
+dir.create(OUTDIR_CC, recursive=TRUE, showWarnings=FALSE)
+print("Import celltype gene sets ...")
+ref2 = read.table(
+  "../results/rerun/Celltype/DISCO_Marker_brain.csv",
+  header=T, sep=",")
+ref2 %>% filter(Log2.FC.>0) %>% 
+  group_by(Cell.Type) %>% 
+  top_n(50, Log2.FC.) -> 
+  top_cell_selection
+ref_list = split(top_cell_selection$Gene, top_cell_selection$Cell.Type)
+
+
+```
+
+```{r}
+# detach("package:GSVA", unload = TRUE)
+# mamba install --force-reinstall -p /Users/ekol-yal/miniconda3/envs/TTN bioconda::bioconductor-gsva
+
+#' Calculate gene set enrichment scores using GSVA, and run PCA on those scores.
+#'
+#' @param normalizedCount A numeric matrix or data frame of normalized data with
+#'   features as row names and samples as column names.
+#' @param CellTypeGenesets A list of gene sets and their members
+#' @param OUTDIR_CC Character scalar. Directory where outputs (tables)
+#'   will be written (GSVAscores.csv, CelltypePCs.csv).
+#' @importFrom dplyr %>%
+#' @return A list with components:
+#' \item{sdev}{The standard deviations of the principal components}
+#' \item{rotation}{Gene loadings on each PC}
+#' \item{x}{Sample scores in the new principal component space}
+#' \item{scale}{The scaling factors applied to each variable(if scale=TRUE)}
+#' @export
+CellTypePCA = function(normalizedData, 
+    CellTypeGenesets=NULL, OUTDIR, desgin.table) {
+    # BiocManager::install("GSVA")
+    print("Import gene set ...")
+    if (is.null(CellTypeGenesets)) {
+      Db = msigdbr::msigdbr(species = "Homo sapiens", category = "C8")
+      Db = Db[,c("gs_name", "gene_symbol")]
+      CellTypeGenesets = split(Db$gene_symbol, Db$gs_name)
+    }
+    print("Calcualte GSVA per sample ...")
+    gsva_scores = gsva(expr = as.matrix(normalizedData), 
+            gset.idx.list = CellTypeGenesets, 
+            method = "gsva",       # or "ssgsea", "zscore", "plage"
+            kcdf = "Gaussian",     # Use "Poisson" for raw integer counts
+            parallel.sz = 1) %>% as.data.frame()       # Number of processors to use
+    # param = 
+    #   GSVA::gsvaParam(normalizedData, 
+    #   kegg_metab_db, minSize=5, maxSize=500)
+    # gsva_scores = 
+    #     tryCatch(GSVA::gsva(param, verbose=TRUE) %>% 
+    #     as.data.frame(), error = function(e) NA)
+    if (class(gsva_scores)=="data.frame") {
+        write.table(
+            gsva_scores %>% as.data.frame() %>%
+                    tibble::rownames_to_column(var="Features"),
+            paste0(OUTDIR, "/GSVAscores.csv"),
+            quote = F, row.names = F, col.names = T, sep="\t")
+
+        print("Run PCA on celltype enrichment scores")
+        # pca_cc = makePCAplot(
+        #   list(gsva_scores), list(desgin.table), 
+        #   DEGs=NULL, onlyDEGs =FALSE, OUTDIR)
+        # pca_cc = pca_cc[[1]]
+        pca_cc = prcomp(t(na.omit(gsva_scores)),
+                        scale=TRUE, center = TRUE)
+        pca_cc_sampleloadings = pca_cc$x %>%
+            as.data.frame() %>%
+            tibble::rownames_to_column(var = "sample")
+        write.table(
+            pca_cc_sampleloadings,
+            paste0(OUTDIR, "/CelltypePCs.csv"),
+            quote = F, row.names = F, col.names = T, sep="\t")
+    } else {pca_cc = NULL}
+    
+    return(list(pca_cc=pca_cc, gsva_scores=gsva_scores))
+}
+
+# unlist(lapply(ref_list, length))
+celltypePCs = lapply(names(dataTable.list_SL_IRS_TMM), function(cp) {
+    # print(cp)
+    normalizedData = dataTable.list_SL_IRS_TMM[[cp]]
+    normalizedData = normalizedData %>% dplyr::select(-Protein_IDs, -Gene_names) 
+    NewOrder = normalizedData[, 2:ncol(normalizedData)] %>% 
+      rowSums(., na.rm=TRUE) %>% 
+      order(., decreasing=TRUE)
+    normalizedData = normalizedData[NewOrder,]
+    normalizedData = normalizedData[!duplicated(normalizedData$Genes), ]
+    normalizedData = normalizedData[!is.na(normalizedData$Genes), ]
+    rownames(normalizedData) = NULL
+    normalizedData = normalizedData %>%
+      tibble::column_to_rownames(var="Genes")
+    dir.create(paste0(OUTDIR_CC, "/", cp, "/"), 
+               recursive=TRUE, showWarnings = FALSE)
+    design.table = design.table.list[[cp]]
+    CellTypePCA(normalizedData, 
+                CellTypeGenesets=split(ref2$Gene, ref2$Cell.Type), 
+                OUTDIR = paste0(OUTDIR_CC, "/", cp, "/"),
+                desgin.table = design.table)
+}) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+
+# makePCAplot(celltypePCs, design.table.list, 
+#                 DEGs=DEGtops, onlyDEGs =TRUE)
+
+```
+
+# Statistical test
+
+LIMMA comparisons using the normalized data
+
+```{r,message=FALSE,warning=FALSE,error=FALSE, cache=TRUE}
+# design.table.list = lapply(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"), function(i) {
+#   readr::read_table(paste0(designP, "/design_", i, ".tsv"))
+# }) %>% setNames(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"))
+# outDir = "../results/rerun/"
+# OUTDIR_QC = paste0(outDir, "/QC/")
+# dataTable.list_SL_IRS_TMM =
+#   readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+
+# do parallel model fitting
+rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+    print(i)
+    data_matrix = dataTable.list_SL_IRS_TMM[[i]]
+    data_matrix = data_matrix %>% dplyr::select(-Protein_IDs, -Gene_names) 
+    NewOrder = data_matrix[, 2:ncol(data_matrix)] %>% 
+        rowSums(., na.rm=TRUE) %>% 
+        order(., decreasing=TRUE)
+    data_matrix = data_matrix[NewOrder,]
+    data_matrix = data_matrix[!duplicated(data_matrix$Genes), ]
+    data_matrix = data_matrix[!is.na(data_matrix$Genes), ]
+    rownames(data_matrix) = NULL
+    data_matrix = data_matrix %>%
+        tibble::column_to_rownames(var="Genes")
+    design_matrix = design.table.list[[i]]
+    sharedSamples = 
+        intersect(colnames(data_matrix), design_matrix$sample)
+    data_matrix = data_matrix[, sharedSamples]
+    design_matrix = design_matrix %>%
+        filter(sample %in% sharedSamples)
+    celltypePC = 
+        celltypePCs[[i]]$pca_cc$x %>% 
+        .[design_matrix$sample, c("PC1", "PC2")] %>% 
+        setNames(c("celltypePC1", "celltypePC2")) %>%
+        as.data.frame() %>%
+        tibble::rownames_to_column(var="sample")
+    design_matrix = design_matrix %>% dplyr::left_join(celltypePC)
+    plan(multisession)
+    rslt = future.apply::future_lapply(1:nrow(data_matrix),function(j){
+      abundance = data_matrix[j, design_matrix$sample]
+      tmp_data = data.frame(abundance=as.numeric(abundance),
+                             Condition=design_matrix$Condition, 
+                             Batch=design_matrix$Batch,
+                             RIN=as.numeric(design_matrix$RIN),
+                             PMI=as.numeric(design_matrix$PMI),
+                             CelltypePC1=as.numeric(design_matrix$PC1),
+                             Age=as.numeric(design_matrix$Age))
+      tmp_data$Condition = factor(tmp_data$Condition,levels=c("control", "case"))
+      if (i %in% c("CYTOSOLIC", "PELLET")) {
+          if(any(tapply(is.na(abundance), tmp_data$Batch, all))){
+            design = model.matrix(~0+Condition+RIN+CelltypePC1, data=tmp_data,verbose=FALSE)
+          }else{
+            design = model.matrix(~0+Condition+Batch+RIN+CelltypePC1,data=tmp_data,verbose=FALSE)
+          }      
+      } else {
+          if(any(tapply(is.na(abundance), tmp_data$Batch, all))){
+            design = model.matrix(~0+Condition+Age+CelltypePC1, data=tmp_data,verbose=FALSE)
+          }else{
+            design = model.matrix(~0+Condition+Batch+Age+CelltypePC1,data=tmp_data,verbose=FALSE)
+          }        
+      }
+      contrast.matrix =
+          makeContrasts(contrasts = "Conditioncase-Conditioncontrol", levels = design)
+      fit = lmFit(abundance, design=design)
+      fit2 = contrasts.fit(fit, contrast.matrix)
+      fit2 = eBayes(fit2, robust=T)
+      limma_table = topTable(fit2, coef = 1, number = Inf, sort.by = "none")
+      limma_table
+    }) %>% Reduce(rbind, .) %>% as.data.frame()
+    rownames(rslt) = rownames(data_matrix)
+    rslt = rslt %>% 
+        as.data.frame() %>% tibble::rownames_to_column(var="Genes") %>%
+        arrange(P.Value)
+    rownames(rslt) = NULL
+    rslt$adj.P.Val = p.adjust(rslt$P.Value, method = "fdr")
+    
+    rslt %>% as.data.frame() %>% 
+        dplyr::left_join(dataTable.list_SL_IRS_TMM[[i]])
+}) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+sum(rslt.list[[1]]$adj.P.Val <0.2, na.rm=T)
+sum(rslt.list[[2]]$adj.P.Val <0.2, na.rm=T)
+sum(rslt.list[[3]]$adj.P.Val <0.2, na.rm=T)
+sum(rslt.list[[1]]$adj.P.Val <0.1, na.rm=T)
+sum(rslt.list[[2]]$adj.P.Val <0.1, na.rm=T)
+sum(rslt.list[[3]]$adj.P.Val <0.1, na.rm=T)
+
+# save the full differential table
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis_ControlCelltypeComposition/")
+dir.create(OUTDIR_DA, recursive = T, showWarnings = F)
+lapply(names(rslt.list), function(i) {
+    xlsx.file = 
+      paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx")
+    write.xlsx(rslt.list[[i]] %>% as.data.frame(), 
+      xlsx.file, 
+      sheetName = i, col.names = TRUE, 
+      row.names = F, append = F)  
+})
+
+
+# OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis_ControlCelltypeComposition/")
+# rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+#   read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+#                  sheet=1, col_names=TRUE, na="", skip=0)
+# }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+
+```
+
+Volcano plot
+
+```{r}
+# OUTDIR_QC = paste0(outDir, "/QC/")
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis_ControlCelltypeComposition/")
+# dataTable.list_SL_IRS_TMM =
+#   readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+# rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+#   read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+#                  sheet=1, col_names=TRUE, na="", skip=0)
+#   }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+doVolcano = function(resi, NAME, lfcShrink=F) {
+  selectedCols <- c("Protein_IDs", "logFC", "P.Value", "adj.P.Val")
+  toExport = resi[, selectedCols]
+  toExport = toExport[order(toExport$P.Value),]
+
+  tmp = as.data.frame(toExport) %>%
+    filter(!is.na(adj.P.Val)) %>%
+    mutate(sig = case_when(
+    P.Value < 0.005 & logFC > 0.22  ~ "up",
+    P.Value < 0.005 & logFC < -0.22 ~ "down",
+    # adj.P.Val < 0.2 & logFC > 0.22  ~ "up",
+    # adj.P.Val < 0.2 & logFC < -0.22 ~ "down",
+    TRUE                            ~ "nonSig"
+  ))
+  # tmp$adj.P.Val[tmp$adj.P.Val<quantile(tmp$adj.P.Val, probs=0.001)] = 
+  #   quantile(tmp$adj.P.Val, probs=0.001)
+  tmpSignif = tmp %>%
+    filter(P.Value < quantile(tmp$P.Value, 0.2) & sig!="nonSig")
+  
+  p = ggplot(data = tmp, aes(logFC, -log10(P.Value), col = sig)) + 
+    geom_point() + 
+    xlab("Log2 Fold Change") +
+    geom_text_repel(
+      data = tmpSignif, aes(logFC, -log10(P.Value), 
+      label = Protein_IDs, max.overlaps = Inf)) +
+    # geom_hline(yintercept = -log10(0.2), lty = 2) +
+    geom_hline(yintercept = -log10(0.005), lty = 2) +
+    geom_vline(xintercept = c(-0.22, 0.22), lty = 2) + 
+    scale_colour_manual(values = c("down"="blue", "nonSig"="black", "up"="red")) + 
+    theme(legend.position="none") +
+    ggtitle(ifelse(lfcShrink, paste0(NAME, "_lfcShrink"), paste0(NAME, "")))
+  return(p)
+}
+
+NAMES = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL") #names(rslt.list)
+for (i in seq_along(rslt.list)) {
+  p = doVolcano(rslt.list[[i]], NAME=NAMES[i], lfcShrink=F)
+  assign(paste0("P", i), p)
+}
+cowplot::plot_grid(P1, P2, P3, ncol=2, nrow=2)
+
+pdf(paste0(OUTDIR_DA, "Volcano_plot.pdf"), h=8, w=10)
+cowplot::plot_grid(P1, P2, P3, ncol=2, nrow=2)
+invisible(dev.off())
+
+```
+
+MA plot
+
+```{r}
+# OUTDIR_QC = paste0(outDir, "/QC/")
+# OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis_ControlCelltypeComposition/")
+# dataTable.list_SL_IRS_TMM =
+#   readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+# rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+#   read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+#                  sheet=1, col_names=TRUE, na="", skip=0)
+#   }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+pdf(paste0(OUTDIR_DA, "MA_plot.pdf"), h=3, w=3)
+invisible(lapply(seq_along(rslt.list), function(i) {
+  obj = rslt.list[[i]]
+  name = names(rslt.list)[i]
+  print(ggplot(obj, aes(x=AveExpr, y=logFC)) +
+    geom_point() +
+    geom_line(y=0, col="red") +
+    ggtitle(paste0(name, "_MA plot")) +
+    theme_bw())
+}))
+invisible(dev.off())
+
+```
+
+## DEG Sensitivity Analysis
+
+DEGs: P.Value \< 0.005&abs(logFC)\>0.22
+
+```{r}
+design.table.list = lapply(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"), function(i) {
+  readr::read_table(paste0(designP, "/design_", i, ".tsv"))
+}) %>% setNames(c("CYTOSOLIC", "PELLET", "SYNAPTOSOMAL"))
+
+DEGtops = lapply(seq_along(rslt.list), function(d) {
+  rslt.list[[d]] %>% 
+    filter(P.Value < 0.005&abs(logFC)>0.22) %>% pull(Protein_IDs) 
+    # filter(adj.P.Val<0.2&abs(logFC)>0.22) %>% pull(Protein_IDs)   
+}) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+paste0(OUTDIR_DA, "/DEGs_onAllSamples/") %>%
+  dir.create(., recursive = T, showWarnings=FALSE)
+makePCAplot(dataTable.list_SL_IRS_TMM, design.table.list, 
+           DEGs=DEGtops, onlyDEGs =TRUE, 
+           OUTDIR=paste0(OUTDIR_DA, "/DEGs_onAllSamples/"))
+
+paste0(OUTDIR_DA, "/DEGs_onAUD/") %>%
+   dir.create(., recursive = T, showWarnings=FALSE)
+DEGpcas = makePCAplot(
+   dataTable.list_SL_IRS_TMM, design.table.list=design.table.list, 
+   DEGs=DEGtops, onlyDEGs =TRUE, 
+   OUTDIR=paste0(OUTDIR_DA, "/DEGs_onAUD/"),
+   onlyDisease=TRUE)
+
+
+print("Add in the Duration of Alcohol Use Disorder (yr) information ...")
+extraMeta = 
+  openxlsx::read.xlsx("../data/Pitt SubjectTable_032626v3.xlsx", startRow = 2)
+extraMeta = extraMeta[, 15:31] %>% 
+  mutate(sampleID=`Subject.ID*`) %>%
+  mutate(sampleID=paste0(sub("\\^$", "", sampleID))) %>%
+  mutate(Duration.of.Alcohol.Use.Disorder = `Duration.of.Alcohol.Use.Disorder.(yr)`) %>%
+  mutate(Duration.of.Alcohol.Use.Disorder = as.numeric(Duration.of.Alcohol.Use.Disorder)) %>%
+  dplyr::select(sampleID, Duration.of.Alcohol.Use.Disorder)
+extraMeta = extraMeta[1:12, ]
+design.table.list2_AUD = lapply(names(design.table.list), function(cp) {
+  design.table = design.table.list[[cp]]
+  degPC = DEGpcas[[cp]]$x %>%
+    as.data.frame() %>% 
+    tibble::rownames_to_column("sample")
+  design.table$sampleID = as.character(design.table$sampleID)
+  design.table %>% 
+    left_join(extraMeta, by=c("sampleID"="sampleID")) %>%
+    left_join(degPC, by=c("sample"="sample")) %>%
+    filter(Condition=="case")
+}) %>% setNames(names(design.table.list))
+
+
+out1 = capture.output({
+      print("Calculate partial correlation between DEGs PC1 and Duration of Alcohol Use Disorder (yr) controlling for Age ...")
+      lapply(design.table.list2_AUD, function(meta00) {
+        if ("PC1" %in% colnames(meta00)) {
+            meta00 = meta00 %>% 
+              dplyr::select(PC1, Duration.of.Alcohol.Use.Disorder, Age) %>%
+              na.omit()
+            ppcor::pcor.test(meta00$PC1, 
+                      meta00$Duration.of.Alcohol.Use.Disorder, 
+                      meta00$Age, 
+                      method="spearman")
+        }
+      }) 
+})
+
+out2 = capture.output({      
+      print("Or let's calcualte the simple spearman correlation between DEGs PC1 and Duration of Alcohol Use Disorder (yr) without controlling for Age ...")
+      lapply(design.table.list2_AUD, function(meta00) {
+        if ("PC1" %in% colnames(meta00)) {
+            meta00 = meta00 %>% 
+              dplyr::select(PC1, Duration.of.Alcohol.Use.Disorder, Age) %>%
+              na.omit()
+            cor.test(meta00$PC1, 
+                      meta00$Duration.of.Alcohol.Use.Disorder, 
+                      method="spearman")
+        }
+      })
+})      
+
+out3 = capture.output({ 
+      print("Calculate partial correlation between DEGs PC2 and Duration of Alcohol Use Disorder (yr) controlling for Age ...")
+      lapply(design.table.list2_AUD, function(meta00) {
+        if ("PC1" %in% colnames(meta00)) {
+            meta00 = meta00 %>% 
+              dplyr::select(PC2, Duration.of.Alcohol.Use.Disorder, Age) %>%
+              na.omit()
+            ppcor::pcor.test(meta00$PC2, 
+                      meta00$Duration.of.Alcohol.Use.Disorder, 
+                      meta00$Age, 
+                      method="spearman")
+        }
+      }) 
+}) 
+
+out4 = capture.output({     
+      print("Or let's calcualte the simple spearman correlation between DEGs PC2 and Duration of Alcohol Use Disorder (yr) without controlling for Age ...")
+      lapply(design.table.list2_AUD, function(meta00) {
+        if ("PC1" %in% colnames(meta00)) {
+            meta00 = meta00 %>% 
+              dplyr::select(PC2, Duration.of.Alcohol.Use.Disorder, Age) %>%
+              na.omit()
+            cor.test(meta00$PC2, 
+                      meta00$Duration.of.Alcohol.Use.Disorder, 
+                      method="spearman")
+        }
+      })
+})
+
+writeLines(out1,
+  paste0(OUTDIR_DA, "/DEGs_onAUD/DEGs_PC1_PartialSpearmanCorrelation_with_AUD_duration_controling4Age.txt"))
+
+writeLines(out2,
+  paste0(OUTDIR_DA, "/DEGs_onAUD/DEGs_PC1_SpearmanCorrelation_with_AUD_duration.txt"))
+
+writeLines(out3,
+  paste0(OUTDIR_DA, "/DEGs_onAUD/DEGs_PC2_PartialSpearmanCorrelation_with_AUD_duration_controling4Age.txt"))
+
+writeLines(out4,
+  paste0(OUTDIR_DA, "/DEGs_onAUD/DEGs_PC2_SpearmanCorrelation_with_AUD_duration.txt"))
+
+
+```
+
+## Barplot of significant proteins abundance (adj.P.Val\<0.2&abs(logFC)\>0.22)
+
+```{r}
+plotProteins = function(mat, design_matrix) {
+    nCounts = mat %>% as.data.frame() %>%
+      gather(-c(Protein_IDs,Genes, Gene_names, logFC,AveExpr,t,P.Value,adj.P.Val,B), 
+             key="sample", value="NormalizedAbundance") %>% 
+      filter(P.Value < 0.005&abs(logFC)>0.22) %>% full_join(design_matrix) %>% 
+      # filter(adj.P.Val<0.2&abs(logFC)>0.22) %>% full_join(design_matrix) %>% 
+      arrange(adj.P.Val, logFC)
+    df = ddply(nCounts, .(Batch, Condition, Protein_IDs), summarize,
+               mean = round(mean(NormalizedAbundance), 2),
+               sd = round(sd(NormalizedAbundance), 2)) 
+    df$NormalizedAbundance = exp(df$mean)
+    df$Protein_IDs = factor(df$Protein_IDs,
+                            levels=unique(nCounts$Protein_IDs))
+                          
+    n = length(unique(nCounts$Protein_IDs))
+    theme_set(theme_bw())
+    p = ggplot(df, aes(fill=Condition, y=NormalizedAbundance, x=Batch)) + 
+      geom_bar(position="dodge", stat="identity") + 
+      labs(y = "Normalized abundance") +
+      facet_wrap(~Protein_IDs, nrow=ceiling(n/16),
+                 ncol=ifelse(n>=16, 16, n),
+                 scale="free") +
+      theme(axis.text.x = element_text(angle=45, vjust=1, hjust = 1))  +
+      geom_errorbar(aes(ymin=NormalizedAbundance-sd, 
+                        ymax=NormalizedAbundance+sd), 
+                    width=.2,
+                    position=position_dodge(.9))+
+      ggtitle(paste0("Significant proteins")) 
+    return(list(plot=p, sig.Prot.nr=n))
+}
+
+lapply(names(rslt.list), function(i) {
+    mat = rslt.list[[i]]
+    design_matrix = design.table.list[[i]]
+    plotsigProt = plotProteins(mat, design_matrix)
+    n = plotsigProt$sig.Prot.nr
+    h=ceiling(n/16)*1.5+1
+    w=ifelse(n>=16, 16*1.5+1.5, n*1.5+1.5)
+    pdf(paste0(OUTDIR_DA, "SigDiffProteins_", i, ".pdf"), h=h, w=w)
+    print(plotsigProt$plot)
+    invisible(dev.off())
+})
+
+```
+
+## How many proteins are shared: upset plot
+
+```{r}
+makeUpset = function(log2FoldChange_thresh, P.Value_thresh, newNames) {
+  protein.list = lapply(names(rslt.list), function(i) {
+    up = as.data.frame(rslt.list[[i]]) %>% 
+      filter(logFC>log2FoldChange_thresh&P.Value<P.Value_thresh)
+      # filter(logFC>log2FoldChange_thresh&adj.P.Val<padj_thresh)
+    down = as.data.frame(rslt.list[[i]]) %>% 
+      filter(logFC< -log2FoldChange_thresh&P.Value<P.Value_thresh)
+      # filter(logFC< -log2FoldChange_thresh&adj.P.Val<padj_thresh)
+    list(up$Protein_IDs, down$Protein_IDs)
+  })  %>% setNames(names(rslt.list))
+  
+  protein.list_UP = c(protein.list[[1]][1], protein.list[[2]][1], protein.list[[3]][1]) %>% 
+    setNames(c(paste0(newNames[1], "_UP"), 
+               paste0(newNames[2], "_UP"), 
+               paste0(newNames[3], "_UP")))
+  protein.list_DOWN = c(protein.list[[1]][2], protein.list[[2]][2], protein.list[[3]][2]) %>% 
+    setNames(c(paste0(newNames[1], "_DOWN"), 
+               paste0(newNames[2], "_DOWN"), 
+               paste0(newNames[3], "_DOWN")))
+  
+  # library(ComplexHeatmap)
+  pdf(paste0(OUTDIR_DA, "/Sig.Diff.proteins_upset.pdf"), h=3.5, w=5)
+  m = make_comb_mat(c(protein.list_UP, protein.list_DOWN))
+  print(UpSet(m,
+        top_annotation = upset_top_annotation(m, add_numbers = TRUE),
+        right_annotation = upset_right_annotation(m, add_numbers = TRUE),
+        comb_order = rev(order(comb_size(m))),
+        set_order = c(paste0(newNames[1], "_UP"), 
+                      paste0(newNames[2], "_UP"), 
+                      paste0(newNames[3], "_UP"),
+                      paste0(newNames[1], "_DOWN"), 
+                      paste0(newNames[2], "_DOWN"), 
+                      paste0(newNames[3], "_DOWN")),
+        column_title = paste0("Significant proteins\n(P.Value<", 
+                       P.Value_thresh, "&|logFC|>", log2FoldChange_thresh,")")))
+  invisible(dev.off())
+  
+  return(list(protein.list_UP=protein.list_UP, protein.list_DOWN=protein.list_DOWN))
+}
+
+log2FoldChange_thresh = 0.22
+# padj_thresh = 0.2
+P.Value_thresh = 0.005
+newNames = c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")
+protein.list = makeUpset(
+  log2FoldChange_thresh, P.Value_thresh, newNames=newNames)
+
+intersect(protein.list$protein.list_DOWN$CYTOSOLIC_DOWN, 
+          protein.list$protein.list_UP$PELLET_UP)
+#"P42766"
+intersect(protein.list$protein.list_UP$CYTOSOLIC_UP, 
+          protein.list$protein.list_DOWN$PELLET_DOWN)
+#P58549
+```
+
+# Functional pathway analysis
+
+## Over representation analysis
+
+Because there are a good number of significant proteins (qval\<0.2) and there are too many significant pathways detected using GSEA So here I will use ORA
+
+I will use KEGG database because it has a disease database which includes alcoholism
+
+```{r}
+print("Check whether there are duplicated gene names")
+lapply(rslt.list, function(r) {
+  length(r$Genes) %>% print()
+  length(r$Genes[!duplicated(r$Genes)]) %>% print()
+})
+
+print("Yes, there is, we need to keep the one with the lowest adj.p.value")
+getEntrez = function(rslt.list, sig.level, logFC.cutoff=0.22) {
+  entrez_list_sig = lapply(rslt.list, function(r) {
+    universe =  arrange(r, P.Value) %>% .[!duplicated(.[, "Genes"]), ] %>%
+      mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+           column = "ENTREZID", keytype = "SYMBOL", 
+           multiVals = "first")) %>% 
+      filter(!is.na(entrez)) %>% .[, "entrez", drop=T]  
+    up = filter(arrange(r, P.Value), P.Value<sig.level) %>%
+      filter(logFC>logFC.cutoff)
+    down = filter(arrange(r, P.Value), P.Value<sig.level) %>%
+      filter(logFC< -logFC.cutoff)
+    entrez_up = NULL
+    if (nrow(up)>0) {
+      #Convert gene symbol to Entrez ID
+      entrez =  up[!duplicated(up$Genes), ] %>%
+        mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                               column = "ENTREZID", keytype = "SYMBOL", 
+                               multiVals = "first")) %>% 
+        filter(!is.na(entrez))
+      entrez_up = entrez[, "entrez", drop=T] %>% 
+        setNames(., entrez[, "Genes", drop=T])  
+    }
+    entrez_down = NULL
+    if (nrow(down)>0) {
+      #Convert gene symbol to Entrez ID
+      entrez =  down[!duplicated(down$Genes), ] %>%
+        mutate(entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                               column = "ENTREZID", keytype = "SYMBOL", 
+                               multiVals = "first")) %>% 
+        filter(!is.na(entrez))
+      entrez_down = entrez[, "entrez", drop=T]  %>% 
+        setNames(entrez[, "Genes", drop=T])
+    }
+    return(list(up=entrez_up, down=entrez_down, 
+                backgrounGeneList=universe))
+  }) 
+  return(entrez_list_sig)
+}
+
+entrez_list_sig = 
+  getEntrez(rslt.list, sig.level=0.005, logFC.cutoff=0.22)
+OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis_ControlCelltypeComposition/ORA/")
+dir.create(OUTDIR_ORA, recursive = T, showWarnings = F)
+
+```
+
+```{r}
+# library(clusterProfiler)
+print("KEGG ORA analysis")
+# library(xlsx)
+runkk = function(entrez_list_sig) {
+  kk.sig = lapply(names(entrez_list_sig), function(i) {
+    gl = entrez_list_sig[[i]]
+    #saveRDS(gl, paste0(OUTDIR_ORA, "gl.RDS"))
+    up = gl$up %>% as.character()
+    down = gl$down %>% as.character()
+    universe = gl$backgrounGeneList
+    kk_up = NULL
+    if (length(up)>0) {
+      set.seed(1234)
+      kk_up = enrichKEGG(gene = up,
+                         organism = 'hsa',
+                         pvalueCutoff = 1,
+                         qvalueCutoff = 1,
+                         universe = universe,
+                         use_internal_data = F)
+      print("Convert Entrez ID back to gene symbol")
+      source("../src/convertEntrez2Symbol.R")
+      kk_up@result$geneID_Symbol = 
+        convertEntrez2Symbol(kk_up@result$geneID, mapping_list=gl$up) %>%
+        as.character()
+      file = ifelse(length(entrez_list_sig)==1, 
+                    paste0(OUTDIR_ORA, "KEGG_ORA_all.xlsx"),
+                    paste0(OUTDIR_ORA, "KEGG_ORA_", i, ".xlsx"))
+      if (file.exists(file)) {
+        file.remove(file)}
+      write.xlsx(as.data.frame(kk_up@result), 
+                 file,
+                 sheetName = paste0(i, "_up"),
+                 col.names=TRUE, row.names=FALSE,
+                 append=T)
+    }
+    
+    kk_down = NULL
+    if (length(down)>0) {
+      set.seed(1234)
+      kk_down = enrichKEGG(gene = down,
+                           organism = 'hsa',
+                           pvalueCutoff = 1,
+                           qvalueCutoff = 1,
+                           universe = universe,
+                           use_internal_data = F)
+      print("Convert Entrez ID back to gene symbol")
+      kk_down@result$geneID_Symbol = 
+        convertEntrez2Symbol(kk_down@result$geneID, mapping_list=gl$down) %>%
+        as.character()
+      write.xlsx(as.data.frame(kk_down@result), 
+                 file,
+                 sheetName = paste0(i, "_down"),
+                 col.names=TRUE, row.names=FALSE,
+                 append=T)
+    } 
+    return(list(up=kk_up, down=kk_down))
+  }) %>% setNames(names(entrez_list_sig)) 
+  return(kk.sig)
+}
+
+kk.sig = runkk(entrez_list_sig)
+OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis_ControlCelltypeComposition/ORA/")
+saveRDS(kk.sig, paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
+kk.sig = readRDS(paste0(OUTDIR_ORA, "KEGG_ORA_result.RDS"))
+
+```
+
+### Dotplot showing significant KEGG pathways
+
+```{r, fig.width=8, fig.height=10}
+# outDir = "../results/rerun/"
+# OUTDIR_ORA = paste0(outDir, "/PathwayAnalysis_ControlCelltypeComposition/ORA/")
+source("../src/makeDotplot.R")
+p1 = makeDotplot_ORA_KEGG(
+  rslt=setNames(kk.sig,c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")), 
+  index.list=1:2, p.adjust.thresh=0.01) #, title="Limma")
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.01.pdf"), h=2.9, w=7)
+p1
+dev.off()
+rm(p1)
+
+p1 = makeDotplot_ORA_KEGG(
+  setNames(kk.sig,c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")), 
+  index.list=1:2, p.adjust.thresh=0.05) #, title="Limma")
+pdf(paste0(OUTDIR_ORA, 
+  "/KEGG_Pathways_DotPlot_pAdjustCutoff0.05.pdf"), h=5, w=8)
+p1
+dev.off()
+rm(p1)
+
+p1 = makeDotplot_ORA_KEGG(
+  setNames(kk.sig,c("CYTOSOLIC", "NUCLEAR", "SYNAPTOSOMAL")), 
+  index.list=1:2, p.adjust.thresh=0.1 ) # , title="Limma")
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_pAdjustCutoff0.1.pdf"), h=6, w=8)
+p1
+dev.off()
+rm(p1)
+
+```
+
+### ORA Pathway analysis on all three compartments together
+
+```{r}
+# OUTDIR_QC = paste0(outDir, "/QC/")
+# OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+# dataTable.list_SL_IRS_TMM =
+#   readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+# OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+# rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+#   read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+#                  sheet=1, col_names=TRUE, na="", skip=0)
+# }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+entrez_list_sig2 = getEntrez(rslt.list, sig.level=0.2, logFC.cutoff=0.22)
+UP = c()
+DOWN = c()
+for (i in entrez_list_sig2) {
+  UP = c(UP, i$up) %>% .[unique(names(.))]
+  DOWN = c(DOWN, i$down) %>% .[unique(names(.))]
+}
+
+entrez_list_sig_all = list(`ALL FRAC.`=list(up=UP, down=DOWN))
+kk.sig_all = runkk(entrez_list_sig_all)
+saveRDS(kk.sig_all, paste0(OUTDIR_ORA, "KEGG_ORA_result_all.RDS"))
+# kk.sig_all = readRDS(paste0(OUTDIR_ORA, "KEGG_ORA_result_all.RDS"))
+
+source("../src/makeDotplot.R")
+p1 = makeDotplot_ORA_KEGG(rslt=kk.sig_all, index.list=1, 
+                     p.adjust=0.1) #, title="Limma")
+pdf(paste0(OUTDIR_ORA, 
+    "/KEGG_Pathways_DotPlot_qvalueCutoff0.1_all.pdf"), 
+    h=12, w=8.5)
+p1
+dev.off()
+
+p1 = makeDotplot_ORA_KEGG(kk.sig_all, index.list=1, 
+                       p.adjust=0.05) #, title="Limma")
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.05_all.pdf"), 
+    h=11, w=8.5)
+p1
+dev.off()
+
+p1 = makeDotplot_ORA_KEGG(kk.sig_all, index.list=1, 
+                       p.adjust=0.01) #, title="Limma")
+pdf(paste0(OUTDIR_ORA, "/KEGG_Pathways_DotPlot_qvalueCutoff0.01_all.pdf"), 
+    h=8, w=8)
+p1
+dev.off()
+
+```
+
+## GSEA pathway analysis (ranked based on t-statistic)
+
+```{r, fig.width=12, fig.height=20}
+limma_rslt_rank_genes = lapply(rslt.list, function(cp) {
+  cp = cp %>% arrange(P.Value)
+  cp = cp[!duplicated(cp$Genes), ]
+  cp = cp %>% arrange(desc(t))
+  setNames(cp$t, cp$Genes)
+})
+
+print("GSEA with MsigDB_C2 subcategory CP:KEGG_LEGACY...")
+kegg_sets = msigdbr::msigdbr(species = "Homo sapiens", 
+            category = "C2", subcategory = "CP:KEGG")
+kegg_term2gene =
+  kegg_sets[, c("gs_name", "gene_symbol")]
+set.seed(123)
+GSEA_KEGG_list = lapply(limma_rslt_rank_genes, function(feature_rank) {
+  clusterProfiler::GSEA(geneList = feature_rank,
+               eps=0, pvalueCutoff = 1,
+               pAdjustMethod = "fdr",
+               TERM2GENE = kegg_term2gene)  
+})
+
+
+makeDotplot_GSEA_singleDB = function(rslt, index.list=1:3, 
+                       sig_statitic="pvalue",
+                       sig.thresh=0.05, Db_name="",
+                       colors=c("#6D6D6D", "#B32B16", "orange")) {
+  # Combine the GSEA result to a long table...
+  if (purrr::is_empty(index.list)) {
+    rslt1 = rslt
+  } else {
+    rslt1 = rslt[index.list]
+  }
+
+  # Convert the result to long table and filter
+  table.long = lapply(seq_along(rslt1), function(i) {
+    rslt1[[i]]@result %>% mutate(Condition=names(rslt1)[i]) %>%
+        dplyr::select(Condition, everything()) %>% 
+        arrange(-NES)
+  }) %>% Reduce(rbind, .) 
+  
+  table.long[[sig_statitic]] = as.numeric(table.long[[sig_statitic]])
+  table.long = table.long[table.long[[sig_statitic]]<sig.thresh, ]
+  
+  if (nrow(table.long)>0) {
+    table.long$Condition = factor(table.long$Condition,
+                    levels=unique(table.long$Condition))
+    # Sort the pathways to shared and unique...
+    pathway.list = split(table.long, "Condition") %>%
+      lapply(., function(condition) {
+        condition %>% pull(ID)
+      })
+    pathways.sorted = c(Reduce(intersect, pathway.list),
+                        table.long$ID) %>% unique()
+    table.long$ID = factor(table.long$ID,
+                           levels = rev(pathways.sorted))
+    
+    p = ggplot(data=table.long, mapping=aes_string(x="NES", y="ID")) +
+      geom_point(shape=21, aes_string(size=sig_statitic, fill="Condition"), alpha=0.7) +
+      #facet_wrap(~Condition) + 
+      ggtitle(paste0("GSEA", Db_name)) +
+      xlab("NES(Normalized enrichment score)") +
+      ylab("") + labs(size=sig_statitic) +
+      scale_fill_manual(values=colors) +
+      theme_bw(base_size = 15) + 
+      scale_size(trans="reverse") +
+      guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
+      theme(strip.text.x = element_text(size = 14)) +
+      labs(caption=paste0(sig_statitic, "Cutoff = ", sig.thresh, ", pAdjustMethod = fdr"))
+  } else {p = NULL}
+  
+  return(p)
+}
+
+
+GSEA_KEGG_list = lapply(GSEA_KEGG_list, function(gk) {
+  gk@result = gk@result %>% as.data.frame %>%
+    mutate(ID = gsub("KEGG_", "", ID))
+  gk
+}) %>% setNames(gsub("PELLET", "NUCLEAR", names(rslt.list)))
+
+outDir = "../results/rerun/"
+OUTDIR_GSEA = paste0(outDir, "/PathwayAnalysis_ControlCelltypeComposition/GSEA/")
+dir.create(OUTDIR_GSEA, recursive = TRUE, showWarnings = FALSE)
+saveRDS(GSEA_KEGG_list, paste0(OUTDIR_GSEA, "GSEA_KEGG_results.RDS"))
+openxlsx::write.xlsx(lapply(GSEA_KEGG_list, function(r) r@result), 
+                     paste0(OUTDIR_GSEA, "GSEA_KEGG_results.xlsx"))
+
+pdf(paste0(OUTDIR_GSEA, "GSEA_KEGG_DotPlot_pAdjustCutoff0.05.pdf"), h=10.5, w=10.5)
+    makeDotplot_GSEA_singleDB(rslt=GSEA_KEGG_list, index.list=1:3, 
+                       sig_statitic="p.adjust",
+                       sig.thresh=0.05, Db_name="",
+                       colors=c("#6D6D6D", "#B32B16", "orange"))
+dev.off()
+
+pdf(paste0(OUTDIR_GSEA, "GSEA_KEGG_DotPlot_pAdjustCutoff0.01.pdf"), h=6, w=10)
+    makeDotplot_GSEA_singleDB(rslt=GSEA_KEGG_list, index.list=1:3, 
+                       sig_statitic="p.adjust",
+                       sig.thresh=0.01, Db_name="",
+                       colors=c("#6D6D6D", "#B32B16", "orange"))
+dev.off()
+
+pdf(paste0(OUTDIR_GSEA, "GSEA_KEGG_DotPlot_pAdjustCutoff0.001.pdf"), h=4, w=9)
+    makeDotplot_GSEA_singleDB(rslt=GSEA_KEGG_list, index.list=1:3, 
+                       sig_statitic="p.adjust",
+                       sig.thresh=0.001, Db_name="",
+                       colors=c("#6D6D6D", "#B32B16", "orange"))
+dev.off()
+
+
+```
+
+### Visualize Spliceosome proteins
+
+```{r, fig.height=10, fig.width=10}
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis_ControlCelltypeComposition/")
+# OUTDIR_GSEA = paste0(outDir, "/PathwayAnalysis_ControlCelltypeComposition/GSEA/")
+# GSEA_KEGG_list = readRDS(paste0(OUTDIR_GSEA, "/GSEA_KEGG_results.RDS"))
+Spliceosome_genes = GSEA_KEGG_list$NUCLEAR@result %>%
+    filter(ID=="SPLICEOSOME") %>%
+    pull(core_enrichment) %>% stringr::str_split(., "/") %>% .[[1]]
+
+# Design
+design = readr::read_table("../data/design_7314/design_PELLET.tsv")
+design
+
+# Normalized protein abundance
+Insoluble_Nintensity = read_excel(
+    paste0("../results/rerun/QC/NormalizedIntensity.xlsx"),
+                  sheet=2, col_names=TRUE, na="", skip=0) %>%
+    filter(Genes %in% Spliceosome_genes) %>%
+    gather("sample", "Norm.intensity", -Genes, -Gene_names, -Protein_IDs) %>%
+    full_join(design)
+Insoluble_Nintensity$Condition = 
+    ifelse(Insoluble_Nintensity$Condition=="case", "AUD", "UC")
+
+# Get p value
+OUTDIR_QC = paste0(outDir, "/QC/")
+dataTable.list_SL_IRS_TMM =
+    readRDS(paste0(OUTDIR_QC, 
+    "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+
+rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+    read_excel(
+        paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+        sheet=1, col_names=TRUE, na="", skip=0)
+    }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
+P = rslt.list$PELLET %>% filter(Genes %in% Spliceosome_genes) %>%
+  .[, c("Protein_IDs", "P.Value", "adj.P.Val")]
+
+Insoluble_Nintensity = Insoluble_Nintensity %>% full_join(P)
+Insoluble_Nintensity$Protein_IDs_P.Value =
+    paste0(Insoluble_Nintensity$Protein_IDs, "\n(P.Value=",
+           round(Insoluble_Nintensity$P.Value, 4), ")")
+Insoluble_Nintensity$Protein_IDs_adj.P.Val =
+    paste0(Insoluble_Nintensity$Protein_IDs, "\n(adj.P.Val=",
+           round(Insoluble_Nintensity$adj.P.Val, 4), ")")
+
+theme_set(theme_bw())
+P1 = ggplot(Insoluble_Nintensity, aes(x=Condition, y=Norm.intensity)) +
+    geom_violin(aes(fill=Condition)) +
+    facet_wrap(~Protein_IDs_P.Value, ncol=5, scale="free") +
+    geom_boxplot(width=0.1) +
+    geom_point(position = position_jitter(seed = 1, width = 0.2))
+
+P1
+
+theme_set(theme_bw())
+P2 = ggplot(Insoluble_Nintensity, aes(x=Condition, y=Norm.intensity)) +
+    geom_violin(aes(fill=Condition)) +
+    facet_wrap(~Protein_IDs_adj.P.Val, ncol=5, scale="free") +
+    geom_boxplot(width=0.1) +
+    geom_point(position = position_jitter(seed = 1, width = 0.2))
+P2
+
+
+dir.create(paste0(OUTDIR_GSEA, "/Spliceosome/"), showWarnings = F, recursive = T)
+pdf(paste0(OUTDIR_GSEA, "/Spliceosome/Spliceosome_proteins.pdf"), h=18, w=10)
+    P1
+    P2
+dev.off()
+
+
+```
+
+**As you can see that, when combining the significant up and down regulated differential proteins from all three compartments, the pathways got are not as relevant as that of DIABLO, which is probably because this strategy does not account for interactions between different datasets, and is very probably biased toward certain dataset/s.**
+
+# GSEA analysis on Synaptosomal DEGs using SynGO
+
+```{r}
+outDir = "../results/rerun/"
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis_ControlCelltypeComposition/")
+i = "SYNAPTOSOMAL"
+rslt_syn = read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0) %>%
+  mutate(Entrez = mapIds(org.Hs.eg.db, keys = Genes, 
+                 column = "ENTREZID", keytype = "SYMBOL", 
+                 multiVals = "first") %>% as.character()) %>%
+  dplyr::select(Protein_IDs, Genes, Entrez, everything())
+
+# synGO
+synGO = 
+  read.xlsx2("../data/SynGO_bulk_download_release_20231201/syngo_ontologies.xlsx",
+  sheetName = "Sheet 1", header=T) #%>% filter(domain=="BP")
+syn_ref = split(synGO$hgnc_symbol, synGO$name) %>% 
+  lapply(., function(s) {
+    strsplit(s, ", ")[[1]] %>% unique()
+  })
+# gene_rank = setNames(rslt_syn$logFC, rslt_syn$Genes) %>% 
+gene_rank = setNames(rslt_syn$t, rslt_syn$Genes) %>% 
+  sort(., decreasing=T) %>% .[!duplicated(names(.))] %>% .[!is.na(names(.))]
+  
+library(fgsea)
+set.seed(123)
+fgseaRes = fgsea(
+  pathways = syn_ref, stats = gene_rank, 
+  minSize = 5, maxSize = 500) %>% 
+  arrange(padj) #%>% filter(padj<0.05) 
+fgseaRes$name = fgseaRes$pathway
+fgseaRes = fgseaRes %>% left_join(synGO)
+fgseaRes$pathway = sapply(fgseaRes$pathway, function(p) {strsplit(p, "[(]")[[1]][1]})
+fgseaRes$pathway = factor(fgseaRes$pathway, levels=rev(fgseaRes$pathway))
+
+fgseaRes4Plotting = fgseaRes %>% filter(padj<0.05)
+fgseaRes4Plotting$Fraction = i
+fgseaRes4Plotting$Regulation = ifelse(fgseaRes4Plotting$NES>0, "Up", "Down")
+P = ggplot(fgseaRes4Plotting, aes(y=pathway, x=NES)) +
+  geom_point(shape=21, aes(size=padj, fill=Regulation)) + #, fill="coral3") +
+  facet_wrap(~Fraction, ncol=3) + 
+  ggtitle("GSEA-SynGO") +
+  xlab("NES") +
+  ylab("") + labs(size="padj") +
+  theme_bw(base_size = 15) + 
+  scale_fill_manual(values=c(Down="#6D6D6D", Up="#B32B16")) + 
+  scale_size(trans="reverse") +
+  guides(alpha="none", size=guide_legend(override.aes=list(shape=21))) +
+  theme(strip.text.x = element_text(size = 14)) +
+  labs(caption="FDR < 0.05 & 5<=setSize<=500")
+
+dir.create(paste0(OUTDIR_DA, "/SynGO/"), recursive=T, showWarnings = F)
+pdf(paste0(OUTDIR_DA, "/SynGO/Dotplot_enriched_SynGO.pdf"), h=3.1, w=8)
+P
+dev.off()
+P
+
+write.xlsx2(
+  fgseaRes, 
+  paste0(OUTDIR_DA, "/SynGO/Enriched_SynGO.xlsx"), 
+  col.names = T, row.names = F)
+# fgseaRes = openxlsx::read.xlsx(paste0(OUTDIR_DA, "/SynGO/Enriched_SynGO.xlsx"))
+
+# knit in R notebooks:
+output = capture.output({
+  sessionInfo()
+})
+writeLines(output, paste0(OUTDIR_DA, "/SynGO/sessionInfo.txt"))
+
+```
+
+```{r}
+library(limma)
+out = capture.output(sessionInfo())
+writeLines(out, paste0(OUTDIR_ORA, "/seesionInfo.txt"))
+sessionInfo()
+```
+
+# Methods
+
+```{r}
+out = capture.output(cat("
+1. Differential analysis that also counts for celltype compositions
+
+In this notebook, we rerun differential analysis with an additional confounding factor that was added to the model to be controlled for: celltype composition.
+
+For each cellular compartment, we first performed Gene Set Variation Analysis (GSVA) analysis on the normalzied data to evaluate celltype enrichment at the individual sample level, using the R package, GSVA_1.46.0. GSVA transfoms the gene expression matrix into a celltype-level enrichment score matrix. Briefly, gene expression values were first normalized and ranked within each sample. A non-parameteric kernel estimation of the cumulative density function was applied to calculate a rank-based enrichment score for each predefined gene set. This resulted in an enrichment score (ES) for every gene set in every sample, where a positive score indicates relative upregulation and a negative score indicates downregulation. The celltype gene sets used here were brain markers downloased from DISCO (https://www.immunesinglecell.com), only top 50 genes ranked based on logFC were considered to be marker genes for each celltype.
+
+We then run PCA analysis on the GSVA enrichment scores, extracted the PC1 scores for each sample to represent their celltype compositions, which were then added to the linear model as an extra covariate to control for it using Limma v.3.54.2. The analyses accounted for TMT batch, RIN and celltype composition as covariates in the cytosolic and insoluble fractions, and for TMT batch, age and celltype composition in the synaptosomal fraction. Proteins with a P.Value of < 0.005 and |logFC|>0.22 were considered statistically significant.
+
+2. Pathway analysis
+
+To explore the biological roles of the significant differentially expressed proteins identified through limma, we performed Gene Set Enrichement Analysis (GSEA) using clusterProfiler_4.6.2. Unlike methods that focus on individual differentially expressed genes, GSEA determines whether a pre-defined set of genes shows a statistically significant cumulative shift in expresson across the entire ranked gene list. Proteins were ranked based on their t statistic derived from the differential expression analysis. We used the CP:KEGG subcategory from the C2 category from the MsigDB database for this analysis. Results were considered significant if they met a threshold of FDR < 0.05/0.01/0.001 (you can choose one of these).
+
+We also run GSEA on the entire ranked gene list with similar abovementioned procedure using the SynGO database with the R package fgsea_1.33.1.
+
+3. Duration of Alcohol Use Disorder
+
+To check the robustness of the identified differentially expressed genes, and make sure they reflect the duration of alcohol use disorder, we first performed PCA analysis on them only using the AUD samples, extracted the PC1 scores for all AUD samples, and then calculated either the spearman correlation between these PC1 scores and the duration of alochol use disorder, or the partial spearman correlation between these PC1 scores and the duration of alochol use disorder and simultaneously controlling for Age.                        
+"))
+
+
+writeLines(out, "../results/rerun/DifferentialAnalysis_ControlCelltypeComposition/README.txt")
+
+```
+
+## 1. Differential analysis that also counts for celltype compositions
+
+In this notebook, we rerun differential analysis with an additional confounding factor that was added to the model to be controlled for: celltype composition.
+
+For each cellular compartment, we first performed Gene Set Variation Analysis (GSVA) analysis on the normalzied data to evaluate celltype enrichment at the individual sample level, using the R package, GSVA. GSVA transfomr the gene expression matrix into a celltype-level enrichment score matrix. Briefly, gene expression values were first normalized and ranked within each sample. A non-parameteric kernel estimation of the cumulative density function was applied to calculate a rank-based enrichment score for each predefined gene set. This resulted in an enrichment score (ES) for every gene set in every sample, where a positive score indicates relative upregulation and a negative score indicates downregulation. The celltype gene sets used here were brain markers downloased from DISCO (<https://www.immunesinglecell.com),> only top 50 genes ranked based on logFC were considered to be marker genes for each celltype.
+
+We then run PCA analysis on the GSVA enrichment scores, extracted the PC1 scores for each sample to represent their celltype compositions, which were then added to the linear model as an extra covariate to control for it using Limma v.3.54.2. The analyses accounted for TMT batch, RIN and celltype composition as covariates in the cytosolic and insoluble fractions, and for TMT batch, age and celltype composition in the synaptosomal fraction. Proteins with a P.Value of \< 0.005 and \|logFC\|\>0.22 were considered statistically significant.
+
+## 2. Pathway analysis
+
+To explore the biological roles of the significant differentially expressed proteins identified through limma, we performed Gene Set Enrichement Analysis (GSEA) using clusterProfiler ###. Unlike methods that focus on individual differentially expressed genes, GSEA determines whether a pre-defined set of genes shows a statistically significant cumulative shift in expresson across the entire ranked gene list. Proteins were ranked based on their t statistic derived from the differential expression analysis. We used the CP:KEGG subcategory from the C2 category from the MsigDB database for this analysis. Results were considered significant if they met a threshold of FDR \< 0.05/0.01/0.001 (you can choose one of these).
+
+We also run GSEA on the entire ranked gene list with similar abovementioned procedure using the SynGO database with the R package fgsea.
+
+## 3. Duration of Alcohol Use Disorder
+
+To check the robustness of the identified differentially expressed genes, and make sure they reflect the duration of alcohol use disorder, we first performed PCA analysis on them only using the AUD samples, extracted the PC1 scores for all AUD samples, and then calculate either the spearman correlation between these PC1 scores and the duration of alochol use disorder, or the partial spearman correlation between these PC1 scores and the duration of alochol use disorder and simultaneously controlling for Age.
+
+# Deliverables
+
+# Directory
+
+## Practical info
+
+## Software
+
+# Data responsibility
+
+The responsibility for data archiving lies with the PI of the project. We do not offer long-term storage or retrieval of data.
+
+-   **NBIS & UPPNEX:** We kindly ask that you remove the files from UPPMAX/UPPNEX. The main storage at UPPNEX is optimized for high-speed and parallel access, which makes it expensive and not the right place for longer time archiving. Please consider others by not taking up the expensive space. Please note that UPPMAX is a resource separate from the Bioinformatics Platform, administered by the Swedish National Infrastructure for Computing (SNIC) and SNIC-specifc project rules apply to all projects hosted at UPPMAX.
+-   **Sensitive data:** Please note that special considerations may apply to the human-derived legally considered sensitive personal data. These should be handled according to specific laws and regulations as outlined e.g. [here](http://nbis.se/support/human-data.html).
+-   **Long-term backup:** We recommend asking your local IT for support with long-term data archiving. The [Data Office](https://www.scilifelab.se/data/) at SciLifeLab may be of help to discuss other options.
+
+# Acknowledgments
+
+If you are presenting the results in a paper, at a workshop or conference, we kindly ask you to acknowledge us.
+
+-   NBIS staff are encouraged to be co-authors when this is merited in accordance to the ethical recommendations for authorship, e.g. [ICMJE recommendations](http://www.icmje.org/recommendations/browse/roles-and-responsibilities/defining-the-role-of-authors-and-contributors.html). If applicable, please include **Name, Surname, National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Further Affliations**, as co-author. In other cases, NBIS would be grateful if support by us is acknowledged in publications according to this example:
+
+> "Support by NBIS (National Bioinformatics Infrastructure Sweden) is gratefully acknowledged."
+
+-   **UPPMAX** kindly asks you to [acknowledge UPPMAX and NAISS](https://www.uppmax.uu.se/support/faq/general-miscellaneous-faq/acknowledging-uppmax-and-naiss).
+
+-   **NGI:** For publications based on data from NGI Sweden, NGI and SciLifeLab should be acknowledged. Instructions are included in the NGI reports as described [here](https://ngisweden.scilifelab.se/resources/getting-started-at-ngi/).
