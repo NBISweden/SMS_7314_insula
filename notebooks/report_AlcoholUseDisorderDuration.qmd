@@ -180,7 +180,8 @@ keggGSVA = function(normalizedData, OUTDIR, desgin.table, dbdir = OUTDIR_ADD) {
       kegg_sets[, c("pathway_name", "gene_symbols")]
     keggdb = split( kegg_term2gene$gene_symbols,  kegg_term2gene$pathway_name)
     keggdb = lapply(keggdb, function(gs){
-        stringr::str_split(gs, ";")[[1]]
+        gs = stringr::str_split(gs, ";")[[1]]
+        gs = gs[!grepl("KO:", gs)]
     })
     set.seed(123)
     print("Calcualte GSVA per sample ...")
@@ -263,7 +264,7 @@ cor_list = lapply(names(KEGGgsvas), function(c) {
                Pvalue=r$p.value,
                Sample_size=r$n) 
   }) %>% Reduce(rbind, .) %>% arrange(Pvalue)
-  partial_cor$Padj = p.adjust(cors$Pvalue, method="fdr")
+  partial_cor$Padj = p.adjust(partial_cor$Pvalue, method="fdr")
   
   
   return(list(Spearman_cor = cors, Partial_spearman_cor = partial_cor))
