@@ -969,7 +969,7 @@ rm(p1)
 
 ```{r}
 # OUTDIR_QC = paste0(outDir, "/QC/")
-# OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
+# OUTDIR_DA = paste0(outDir, "/DifferentialAnalys/")
 # dataTable.list_SL_IRS_TMM =
 #   readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
 # OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis/")
@@ -1019,6 +1019,15 @@ dev.off()
 ## GSEA pathway analysis (ranked based on t-statistic)
 
 ```{r, fig.width=12, fig.height=20}
+OUTDIR_QC = paste0(outDir, "/QC/")
+OUTDIR_DA = paste0(outDir, "/DifferentialAnalysis_ControlCelltypeComposition/")
+dataTable.list_SL_IRS_TMM =
+  readRDS(paste0(OUTDIR_QC, "/NormalizedIntensity_dataTable.list_SL_IRS_TMM.RDS"))
+rslt.list = lapply(names(dataTable.list_SL_IRS_TMM), function(i) {
+  read_excel(paste0(OUTDIR_DA, "/Differential_Table_", i, ".xlsx"),
+                 sheet=1, col_names=TRUE, na="", skip=0)
+  }) %>% setNames(names(dataTable.list_SL_IRS_TMM))
+
 limma_rslt_rank_genes = lapply(rslt.list, function(cp) {
   cp = cp %>% arrange(P.Value)
   cp = cp[!duplicated(cp$Genes), ]
@@ -1027,23 +1036,31 @@ limma_rslt_rank_genes = lapply(rslt.list, function(cp) {
 })
 
 print("GSEA with MsigDB_C2 subcategory CP:KEGG_LEGACY...")
-kegg_sets = msigdbr::msigdbr(species = "Homo sapiens", 
-            category = "C2", subcategory = "CP:KEGG")
-kegg_term2gene =
-  kegg_sets[, c("gs_name", "gene_symbol")]
+# kegg_sets = msigdbr::msigdbr(species = "Homo sapiens", 
+#             category = "C2", subcategory = "CP:KEGG")
+# kegg_term2gene =
+#   kegg_sets[, c("gs_name", "gene_symbol")]
+dbdir = "../results/rerun/PathwayAnalysis_ControlCelltypeComposition/"
+kegg_sets = read.csv(paste0(dbdir, "/KEGG_combined.csv"), sep="\t")
+library(tidyr)
+kegg_ter2gene = kegg_sets[,c("pathway_name", "gene_symbols")] %>%
+  setNames(c("gs_name", "gene_symbol")) %>%
+  separate_rows(gene_symbol, sep = ";")
+kegg_ter2gene = kegg_ter2gene[!grepl("KO:", kegg_ter2gene$gene_symbol), ]
+
 set.seed(123)
 GSEA_KEGG_list = lapply(limma_rslt_rank_genes, function(feature_rank) {
   clusterProfiler::GSEA(geneList = feature_rank,
-               eps=0, pvalueCutoff = 1,
-               pAdjustMethod = "fdr",
-               TERM2GENE = kegg_term2gene)  
+       eps=0, pvalueCutoff = 1,
+       pAdjustMethod = "fdr",
+       TERM2GENE = kegg_ter2gene,
+       minGSSize = 3)  
 })
 
-
 makeDotplot_GSEA_singleDB = function(rslt, index.list=1:3, 
-                       sig_statitic="pvalue",
-                       sig.thresh=0.05, Db_name="",
-                       colors=c("#6D6D6D", "#B32B16", "orange")) {
+       sig_statitic="pvalue",
+       sig.thresh=0.05, Db_name="",
+       colors=c("#6D6D6D", "#B32B16", "orange")) {
   # Combine the GSEA result to a long table...
   if (purrr::is_empty(index.list)) {
     rslt1 = rslt
@@ -1105,21 +1122,21 @@ saveRDS(GSEA_KEGG_list, paste0(OUTDIR_GSEA, "GSEA_KEGG_results.RDS"))
 openxlsx::write.xlsx(lapply(GSEA_KEGG_list, function(r) r@result), 
                      paste0(OUTDIR_GSEA, "GSEA_KEGG_results.xlsx"))
 
-pdf(paste0(OUTDIR_GSEA, "GSEA_KEGG_DotPlot_pAdjustCutoff0.05.pdf"), h=10.5, w=10.5)
+pdf(paste0(OUTDIR_GSEA, "GSEA_KEGG_DotPlot_pAdjustCutoff0.05.pdf"), h=15, w=9)
     makeDotplot_GSEA_singleDB(rslt=GSEA_KEGG_list, index.list=1:3, 
                        sig_statitic="p.adjust",
                        sig.thresh=0.05, Db_name="",
                        colors=c("#6D6D6D", "#B32B16", "orange"))
 dev.off()
 
-pdf(paste0(OUTDIR_GSEA, "GSEA_KEGG_DotPlot_pAdjustCutoff0.01.pdf"), h=6, w=10)
+pdf(paste0(OUTDIR_GSEA, "GSEA_KEGG_DotPlot_pAdjustCutoff0.01.pdf"), h=10, w=9)
     makeDotplot_GSEA_singleDB(rslt=GSEA_KEGG_list, index.list=1:3, 
                        sig_statitic="p.adjust",
                        sig.thresh=0.01, Db_name="",
                        colors=c("#6D6D6D", "#B32B16", "orange"))
 dev.off()
 
-pdf(paste0(OUTDIR_GSEA, "GSEA_KEGG_DotPlot_pAdjustCutoff0.001.pdf"), h=4, w=9)
+pdf(paste0(OUTDIR_GSEA, "GSEA_KEGG_DotPlot_pAdjustCutoff0.001.pdf"), h=7, w=9)
     makeDotplot_GSEA_singleDB(rslt=GSEA_KEGG_list, index.list=1:3, 
                        sig_statitic="p.adjust",
                        sig.thresh=0.001, Db_name="",
