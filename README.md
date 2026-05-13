@@ -18,15 +18,15 @@ We would now like to re-analyze the data and prepare material, e.g., Figures/Tab
 
 ## Requested to do
 
-o	Characterization of subcellular fraction composition
-o	Differential abundance (Limma), and pathway/sensitivity analyses
-o	Multivariate (plsDA), and pathway analyses
-o	Protein redistribution analysis 
-o	Cross-fraction integration analyses (DIABLO)
-o	Cell-type enrichment and sensitivity analysis
-o	Integration with genetic risk loci
-o	Proteomic differential alternative splicing analysis
-o	Neuronal drug-repurposing analyses
+    - Characterization of subcellular fraction composition
+    - Differential abundance (Limma), and pathway/sensitivity analyses
+    - Multivariate (plsDA), and pathway analyses
+    - Protein redistribution analysis 
+    - Cross-fraction integration analyses (DIABLO)
+    - Cell-type enrichment and sensitivity analysis
+    - Integration with genetic risk loci
+    - Proteomic differential alternative splicing analysis
+    - Neuronal drug-repurposing analyses
 
 
 ## Data Information
